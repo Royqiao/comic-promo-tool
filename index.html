@@ -435,7 +435,7 @@
                     'Content-Type': 'application/json',
                     'X-Master-Key': currentKey
                   },
-                  body: JSON.stringify([])
+                  body: JSON.stringify([{ init: true }])
                 });
 
                 if (res.ok) {
