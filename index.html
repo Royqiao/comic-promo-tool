@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>韩漫作品近来促销活动 & 抄底测算器</title>
+  <title>韩漫作品历史促销档案 & 抄底测算器</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- SheetJS (Excel解析库，阿里镜像) -->
@@ -24,10 +24,10 @@
     <header class="mb-8 text-center sm:text-left sm:flex sm:justify-between sm:items-end border-b border-slate-200 pb-6">
       <div>
         <div class="inline-flex items-center gap-2 px-3 py-1 bg-rose-50 text-rose-600 rounded-full text-xs font-semibold mb-2">
-          <span>✨ 韩漫作品近来促销活动 (在线测算)</span>
+          <span>✨ 韩国漫画大促历史数据库 (全网云端同步版)</span>
         </div>
-        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">韩漫作品近来促销活动 & 抄底测算器</h1>
-        <p class="text-slate-500 text-sm mt-1">已涵盖 Lezhin KR、Bomtoon、Ridi、Mr.Blue 与 Lezhin US </p>
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">韩漫历史促销档案 & 抄底测算器</h1>
+        <p class="text-slate-500 text-sm mt-1">已适配 Lezhin KR、Bomtoon、Ridi、Mr.Blue 与 Lezhin US 的专属折算汇率</p>
       </div>
 
       <!-- 汇率设置与权限管理栏 -->
@@ -76,13 +76,13 @@
         <div v-if="isAdmin" class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1.5 rounded-xl">
           <input type="file" ref="fileInput" @change="handleImportExcel" accept=".xlsx,.xls,.csv" class="hidden" />
           <button @click="$refs.fileInput.click()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition">
-            📥 导入 Excel (追加/修正)
+            📥 导入 Excel (全网同步)
           </button>
           <button @click="downloadTemplate" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold transition">
             📄 下载模板
           </button>
           <button @click="clearAllData" class="px-2 py-1 text-rose-500 hover:text-rose-700 text-xs">
-            清空所有数据
+            清空云端数据
           </button>
           <button @click="logoutAdmin" class="text-xs text-slate-400 hover:underline px-1 font-medium">
             退出管理
@@ -115,26 +115,32 @@
             <option value="">全部优惠力度 (All Types)</option>
             <option value="100% Coinback">100% 全额返币</option>
             <option value="100% Payback">100% 积分返还</option>
-            <option value="1c 展">1 Coin (1c 特惠)</option>
+            <option value="1c 展">1 Coin (1c 展)</option>
             <option value="2c 展">2 Coin (2c 特惠)</option>
-            <option value="50% 折扣">50% 半价</option>
-            <option value="积分返还">积分返还 (Pointback)</option>
+            <option value="50% 折扣">50% 半价/租借折减</option>
+            <option value="积分返现">大额返现 (Cashback)</option>
           </select>
         </div>
       </div>
     </section>
 
+    <!-- 加载中动画 -->
+    <div v-if="isLoading" class="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
+      <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-rose-500 border-t-transparent mb-3"></div>
+      <p class="text-slate-500 text-sm">正在从云端加载全网最新的大促数据...</p>
+    </div>
+
     <!-- 作品列表展示 -->
-    <main class="space-y-4">
+    <main v-else class="space-y-4">
       <!-- 空数据状态提示 -->
       <div v-if="filteredWorks.length === 0" class="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300">
         <div class="text-3xl mb-2">📚</div>
         <p class="text-slate-600 font-medium text-sm">
-          {{ works.length === 0 ? '暂无收录数据，请点击右上角登录管理员导入你的 Excel 表格' : '未找到符合筛选条件的作品或活动' }}
+          {{ works.length === 0 ? '云端暂无收录数据，请点击右上角登录管理员导入你的 Excel 表格' : '未找到符合筛选条件的作品或活动' }}
         </p>
       </div>
 
-      <!-- 作品卡片列表 (已完全取消展示总话数) -->
+      <!-- 作品卡片列表 -->
       <div v-for="work in filteredWorks" :key="work.id" class="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div class="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -174,7 +180,7 @@
       </div>
     </main>
 
-    <!-- 弹窗计算器 (自由填写话数，无任何上限) -->
+    <!-- 弹窗计算器 -->
     <div v-if="calculator.visible && calculator.work" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl border">
         <div class="flex justify-between items-start border-b pb-3">
@@ -219,7 +225,7 @@
               <div>
                 <span class="text-xs text-amber-300 block font-bold">折合实际成本 (单话半价分摊)：</span>
                 <span class="text-[10px] text-slate-300">
-                  折合人民币 ≈ ¥{{ calcCnyCost }} 元
+                  买一送一机制 · 折合人民币 ≈ ¥{{ calcCnyCost }} 元
                 </span>
               </div>
               <div class="text-right">
@@ -262,9 +268,14 @@
 
   </div>
 
-  <!-- 核心逻辑脚本 -->
+  <!-- 核心逻辑脚本 (全网云端同步引擎) -->
   <script>
-    var DEFAULT_DATA = [];
+    // =========================================================================
+    // 【请在此填入你的 JSONBin 两个参数】
+    // =========================================================================
+    var CLOUD_BIN_ID = '6ae0470cac6210605a554c98';           // 例如: '671c89f5ad19ca34f8bfxxxx'
+    var CLOUD_API_KEY = '$2a$10$gdAY2wX1dpb2NtulpOWIJOcGYcsouoY4jgU2VC.CYlBP71J6VGsou';      // 例如: '$2a$10$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    // =========================================================================
 
     window.addEventListener('DOMContentLoaded', function() {
       if (typeof Vue === 'undefined') {
@@ -281,6 +292,7 @@
         setup: function() {
           var ADMIN_PASSWORD = 'admin2026';
           var isAdmin = ref(false);
+          var isLoading = ref(true);
 
           var checkAdminStatus = function() {
             var urlParams = new URLSearchParams(window.location.search);
@@ -299,7 +311,7 @@
             if (pwd === ADMIN_PASSWORD) {
               isAdmin.value = true;
               localStorage.setItem('is_comic_admin', 'true');
-              alert("认证成功！已开启数据管理权限。");
+              alert("认证成功！已开启数据全网管理权限。");
             } else if (pwd !== null) {
               alert("密钥错误，无权管理！");
             }
@@ -326,29 +338,67 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          var fetchProducts = function() {
-            var localData = localStorage.getItem('custom_comic_works');
-            if (localData) {
-              try {
-                var parsed = JSON.parse(localData);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                  works.value = parsed;
-                  return;
-                }
-              } catch(e) {}
+          // 【全网核心】：所有人打开网页时，自动从云端公共数据池拉取最新数据
+          var fetchCloudProducts = async function() {
+            isLoading.value = true;
+            if (!CLOUD_BIN_ID || CLOUD_BIN_ID === '填入你的BIN_ID') {
+              var local = localStorage.getItem('custom_comic_works');
+              works.value = local ? JSON.parse(local) : [];
+              isLoading.value = false;
+              return;
             }
-            works.value = [];
+
+            try {
+              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
+                headers: { 'X-Master-Key': CLOUD_API_KEY }
+              });
+              if (res.ok) {
+                var json = await res.json();
+                var data = json.record;
+                // 兼容性保护：去除初始化留下的占位符
+                if (Array.isArray(data)) {
+                  data = data.filter(function(item) { return !item.init; });
+                }
+                works.value = Array.isArray(data) ? data : [];
+                localStorage.setItem('custom_comic_works', JSON.stringify(works.value));
+              } else {
+                throw new Error("云端请求失败");
+              }
+            } catch(e) {
+              console.log("云端拉取异常，使用本地离线缓存");
+              var localBackup = localStorage.getItem('custom_comic_works');
+              works.value = localBackup ? JSON.parse(localBackup) : [];
+            } finally {
+              isLoading.value = false;
+            }
           };
 
           onMounted(function() {
-            fetchProducts();
+            fetchCloudProducts();
           });
 
-          var clearAllData = function() {
-            if (confirm("确定要清空已导入的全部作品数据吗？清空后列表将变回空白。")) {
-              localStorage.removeItem('custom_comic_works');
-              works.value = [];
-              alert("已清空所有作品数据！");
+          // 清空云端数据库
+          var clearAllData = async function() {
+            if (!confirm("⚠️ 确定要清空云端和本地的全部作品数据吗？清空后所有人打开都将变为空白！")) {
+              return;
+            }
+            works.value = [];
+            localStorage.removeItem('custom_comic_works');
+
+            if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
+              try {
+                await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': CLOUD_API_KEY
+                  },
+                  body: JSON.stringify([])
+                });
+                alert("已成功清空云端数据库！");
+              } catch(e) {
+                alert("本地已清空，但云端清理失败，请检查网络！");
+              }
             }
           };
 
@@ -389,7 +439,6 @@
 
           var calculator = ref({ visible: false, work: null, event: null, buyEpisodes: 10 });
 
-          // 打开测算器：默认填 10 话作为初始示例，用户可自由改写任意数字
           var openCalculator = function(work, event) {
             calculator.value = {
               visible: true,
@@ -406,7 +455,6 @@
             return type.indexOf('100%') !== -1 || ratio >= 1.0;
           });
 
-          // 安全获取用户输入的购买话数（防呆，如果删除输入框不会变 NaN）
           var getBuyCount = function() {
             var val = Number(calculator.value.buyEpisodes);
             return (isNaN(val) || val < 0) ? 0 : val;
@@ -462,7 +510,7 @@
             return ((coin / 100.0) * rates.value.korean_won_100w).toFixed(2);
           });
 
-          // Excel 智能更新与增量合并导入解析
+          // 【全网核心】：导入 Excel 并智能增量合并后，自动推送覆盖更新到云端数据库
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
               alert("无权操作！请先登录管理员。");
@@ -485,7 +533,7 @@
             };
 
             var reader = new FileReader();
-            reader.onload = function(evt) {
+            reader.onload = async function(evt) {
               try {
                 var data = new Uint8Array(evt.target.result);
                 var workbook = XLSX.read(data, { type: 'array' });
@@ -516,7 +564,6 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
-                  // 1. 若为全新作品，创建骨架
                   if (!workMap.has(key)) {
                     workMap.set(key, {
                       id: 'import-' + Date.now() + '-' + i,
@@ -566,11 +613,30 @@
                 works.value = mergedWorks;
                 localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
 
-                alert('🎉 导入处理完成！\n' +
-                      '- 覆盖修正错误活动：' + updatedEventCount + ' 条\n' +
-                      '- 新增全新活动记录：' + newEventCount + ' 条\n' +
-                      '- 当前收录总作品数：' + mergedWorks.length + ' 部\n' +
-                      '（错误已自动修正，其他作品数据完整保留）');
+                // 核心：直接将最新数据一键同步推送至云端数据库
+                if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
+                  var putRes = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-Master-Key': CLOUD_API_KEY
+                    },
+                    body: JSON.stringify(mergedWorks)
+                  });
+
+                  if (putRes.ok) {
+                    alert('🎉 全网发布成功！\n' +
+                          '- 修正更新记录：' + updatedEventCount + ' 条\n' +
+                          '- 新增活动记录：' + newEventCount + ' 条\n' +
+                          '- 当前收录总作品数：' + mergedWorks.length + ' 部\n' +
+                          '（数据已实时推送到云端，现在任何人打开链接都能立刻看到最新数据！）');
+                  } else {
+                    alert('本地已更新，但云端推送被拒绝，请检查 BIN_ID 和 API_KEY 配置！');
+                  }
+                } else {
+                  alert('本地导入成功，但未配置云端池，其他人暂时无法同步查看。');
+                }
+
                 e.target.value = '';
               } catch (err) {
                 alert('解析 Excel 失败，请检查文件格式！');
@@ -618,6 +684,7 @@
 
           return {
             isAdmin: isAdmin,
+            isLoading: isLoading,
             isPayback100: isPayback100,
             loginAdmin: loginAdmin,
             logoutAdmin: logoutAdmin,
