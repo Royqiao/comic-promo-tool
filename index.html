@@ -84,8 +84,8 @@
           <button @click="clearAllData" class="px-2 py-1 text-rose-500 hover:text-rose-700 text-xs">
             清空云端数据
           </button>
-          <button @click="logoutAdmin" class="text-xs text-slate-400 hover:underline px-1 font-medium">
-            退出管理
+          <button @click="logoutAdmin" class="text-xs text-slate-500 hover:underline px-1 font-medium">
+            退出并换Key
           </button>
         </div>
 
@@ -127,7 +127,7 @@
     <!-- 加载中动画 -->
     <div v-if="isLoading" class="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
       <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-rose-500 border-t-transparent mb-3"></div>
-      <p class="text-slate-500 text-sm">正在从云端加载全网最新的大促数据...</p>
+      <p class="text-slate-500 text-sm">正在从云端加载最新的数据...</p>
     </div>
 
     <!-- 作品列表展示 -->
@@ -268,22 +268,17 @@
 
   </div>
 
-  
+  <!-- 核心逻辑脚本 -->
   <script>
     // =========================================================================
     // 【开源公开环境安全配置】
     // =========================================================================
-    // 1. Bin ID 可以完全公开（所有人以此只读拉取云端数据）
     var CLOUD_BIN_ID = '6ae0470cac6210605a554c98'; 
 
-    // 2. Master Key 绝不公开！留在代码里的永远是空字符串，只在你本机浏览器登录时输入一次
-    var CLOUD_API_KEY = ''; 
-
-    // 3. 密码绝不存明文！
+    // 
     var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4';
     // =========================================================================
 
-    // 浏览器原生快速 SHA-256 哈希计算函数
     async function calcSHA256(message) {
       var msgBuffer = new TextEncoder().encode(message);
       var hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -307,47 +302,50 @@
           var isAdmin = ref(false);
           var isLoading = ref(true);
 
-          // 从本地安全缓存读取只有你自己电脑持有的 Master Key
           var getAdminMasterKey = function() {
             return localStorage.getItem('secure_cloud_api_key') || '';
           };
 
           var checkAdminStatus = function() {
-            if (localStorage.getItem('is_comic_admin') === 'true') {
+            if (localStorage.getItem('is_comic_admin') === 'true' && getAdminMasterKey()) {
               isAdmin.value = true;
             }
           };
 
-          // 管理员登录：核对 SHA-256 指纹，首次登录引导输入 Master Key
+          // 管理员登录（增加了真伪密钥格式严格检查）
           var loginAdmin = async function() {
             var pwd = prompt("请输入管理员密码：");
             if (!pwd) return;
 
             var inputHash = await calcSHA256(pwd);
 
-            // 验证密码（支持指纹或默认密码兼容）
             if (inputHash === ADMIN_PASSWORD_HASH || pwd === 'admin2026') {
-              isAdmin.value = true;
-              localStorage.setItem('is_comic_admin', 'true');
-
-              // 如果当前设备首次登录且未存过 Master Key，引导输入一次
-              if (!getAdminMasterKey()) {
-                var keyInput = prompt("【首次登录安全认证】请输入Key：");
-                if (keyInput) {
+              // 检查本地是否有合法的 Master Key
+              var currentKey = getAdminMasterKey();
+              if (!currentKey || currentKey.indexOf('$2') !== 0 || currentKey.length < 20) {
+                var keyInput = prompt("【首次登录安全认证】请输入你的 Master Key");
+                if (keyInput && keyInput.trim().indexOf('$2') === 0 && keyInput.trim().length > 20) {
                   localStorage.setItem('secure_cloud_api_key', keyInput.trim());
+                } else {
+                  alert("⚠️ 错误！输入的不是有效的 Master Key，已被拒绝登录！\n请填写正确的 Master Key！");
+                  return;
                 }
               }
 
+              isAdmin.value = true;
+              localStorage.setItem('is_comic_admin', 'true');
               alert("认证成功！已开启数据全网管理权限。");
             } else {
               alert("密码错误，无权管理！");
             }
           };
 
+          // 退出管理（彻底清除本地钥匙，方便换电脑或换错Key后重新录入）
           var logoutAdmin = function() {
             isAdmin.value = false;
             localStorage.removeItem('is_comic_admin');
-            alert("已退出管理员模式。");
+            localStorage.removeItem('secure_cloud_api_key');
+            alert("已退出管理员模式，本地密钥已清空。下次登录可重新输入正确的 Master Key！");
           };
 
           checkAdminStatus();
@@ -365,7 +363,7 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          // 全网自动拉取云端数据（访客无需任何 Key，直接只读访问）
+          // 自动拉取云端数据
           var fetchCloudProducts = async function() {
             isLoading.value = true;
             if (!CLOUD_BIN_ID || CLOUD_BIN_ID === '填入你的BIN_ID') {
@@ -381,7 +379,6 @@
                 var json = await res.json();
                 var data = json.record;
                 if (Array.isArray(data)) {
-                  // 过滤掉创建 Bin 时可能留下的测试项
                   data = data.filter(function(item) { return !item.init; });
                 }
                 works.value = Array.isArray(data) ? data : [];
@@ -402,22 +399,21 @@
             fetchCloudProducts();
           });
 
-          // 清空云端数据库
+          // 【严密修复】：清空云端数据库（只有云端真正返回成功后才清空本地！）
           var clearAllData = async function() {
-            if (!confirm("⚠️ 确定要清空云端和本地的全部作品数据吗？清空后所有人打开都将变为空白！")) {
+            if (!confirm("⚠️ 确定要清空云端和本地的全部作品数据吗？")) {
               return;
             }
-            works.value = [];
-            localStorage.removeItem('custom_comic_works');
 
             var currentKey = getAdminMasterKey();
+            if (!currentKey || currentKey.indexOf('$2') !== 0) {
+              alert("❌ 未检测到有效 Master Key，清空操作被拒绝！请点击【退出并换Key】重新输入正确的！");
+              return;
+            }
+
             if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
-              if (!currentKey) {
-                alert("未检测到 Master Key，无法执行云端清空，请重新登录！");
-                return;
-              }
               try {
-                await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
+                var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
                   method: 'PUT',
                   headers: {
                     'Content-Type': 'application/json',
@@ -425,9 +421,17 @@
                   },
                   body: JSON.stringify([])
                 });
-                alert("已成功清空云端数据库！");
+
+                if (res.ok) {
+                  // 云端真正清空成功，才清空本地画面
+                  works.value = [];
+                  localStorage.removeItem('custom_comic_works');
+                  alert("✅ 云端数据库已彻底清空！全网所有人刷新都将变为空白。");
+                } else {
+                  alert("❌ 云端清空被拒绝！你的 Master Key 是错误的！\n云端原有数据完好无损，未被修改。");
+                }
               } catch(e) {
-                alert("本地已清空，但云端清理失败，请检查网络！");
+                alert("❌ 网络连接失败，清空未生效！");
               }
             }
           };
@@ -540,7 +544,7 @@
             return ((coin / 100.0) * rates.value.korean_won_100w).toFixed(2);
           });
 
-          // Excel 智能更新与增量合并导入解析
+          // 【严密修复】：Excel 智能导入（只有云端真正保存成功才提示全网成功）
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
               alert("无权操作！请先登录管理员。");
@@ -594,7 +598,6 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
-                  // 1. 若为全新作品，创建骨架
                   if (!workMap.has(key)) {
                     workMap.set(key, {
                       id: 'import-' + Date.now() + '-' + i,
@@ -641,14 +644,12 @@
                 });
 
                 var mergedWorks = Array.from(workMap.values());
-                works.value = mergedWorks;
-                localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
 
-                // 全网云端安全同步
+                // 云端校验推送
                 var currentKey = getAdminMasterKey();
                 if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
-                  if (!currentKey) {
-                    alert("未检测到 Master Key，数据仅保存在本地！请重新点击右上角管理员输入 Master Key。");
+                  if (!currentKey || currentKey.indexOf('$2') !== 0) {
+                    alert("❌ 无法同步云端！你的 Master Key 是无效的！请点击【退出并换Key】重新输入！");
                     return;
                   }
 
@@ -662,16 +663,17 @@
                   });
 
                   if (putRes.ok) {
+                    // 云端真正保存成功后，才应用到本地
+                    works.value = mergedWorks;
+                    localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
                     alert('🎉 全网发布成功！\n' +
                           '- 修正更新记录：' + updatedEventCount + ' 条\n' +
                           '- 新增活动记录：' + newEventCount + ' 条\n' +
                           '- 当前收录总作品数：' + mergedWorks.length + ' 部\n' +
-                          '（数据已实时推送到云端，任何设备打开链接都能立刻看到最新数据！）');
+                          '（数据已实时推送到云端！）');
                   } else {
-                    alert('本地已更新，但云端推送被拒绝，请检查 Master Key 是否正确！');
+                    alert('❌ 云端同步被拒绝！Master Key 错误，未能存入云端！');
                   }
-                } else {
-                  alert('本地导入成功，但未配置 CLOUD_BIN_ID，其他人暂时无法同步查看。');
                 }
 
                 e.target.value = '';
@@ -705,7 +707,7 @@
                 "类型": "BL",
                 "单话原价": 3,
                 "活动时间": "2026-01-01",
-                "活动名称": "BAAM Festa 1c展",
+                "活动名称": "BAAM Festa 1c特惠",
                 "优惠类型": "1c 展",
                 "活动单价": 1,
                 "返还比例": 0.0,
