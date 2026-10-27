@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>韩漫作品历史促销档案 & 抄底测算器</title>
+  <title>韩漫作品近来促销活动 & 抄底测算器</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- SheetJS (Excel解析库，阿里镜像) -->
@@ -24,10 +24,10 @@
     <header class="mb-8 text-center sm:text-left sm:flex sm:justify-between sm:items-end border-b border-slate-200 pb-6">
       <div>
         <div class="inline-flex items-center gap-2 px-3 py-1 bg-rose-50 text-rose-600 rounded-full text-xs font-semibold mb-2">
-          <span>✨ 韩国漫画大促历史数据库 (全网云端同步版)</span>
+          <span>✨ 韩漫作品近来促销活动 (在线测算)</span>
         </div>
-        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">韩漫历史促销档案 & 抄底测算器</h1>
-        <p class="text-slate-500 text-sm mt-1">已适配 Lezhin KR、Bomtoon、Ridi、Mr.Blue 与 Lezhin US 的专属折算汇率</p>
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">韩漫作品近来促销活动 & 抄底测算器</h1>
+        <p class="text-slate-500 text-sm mt-1">已涵盖 Lezhin KR、Bomtoon、Ridi、Mr.Blue 与 Lezhin US </p>
       </div>
 
       <!-- 汇率设置与权限管理栏 -->
@@ -115,10 +115,10 @@
             <option value="">全部优惠力度 (All Types)</option>
             <option value="100% Coinback">100% 全额返币</option>
             <option value="100% Payback">100% 积分返还</option>
-            <option value="1c 展">1 Coin (1c 展)</option>
+            <option value="1c 展">1 Coin (1c 特惠)</option>
             <option value="2c 展">2 Coin (2c 特惠)</option>
-            <option value="50% 折扣">50% 半价/租借折减</option>
-            <option value="积分返现">大额返现 (Cashback)</option>
+            <option value="50% 折扣">50% 半价</option>
+            <option value="积分返还">积分返还 (Pointback)</option>
           </select>
         </div>
       </div>
@@ -225,7 +225,7 @@
               <div>
                 <span class="text-xs text-amber-300 block font-bold">折合实际成本 (单话半价分摊)：</span>
                 <span class="text-[10px] text-slate-300">
-                  买一送一机制 · 折合人民币 ≈ ¥{{ calcCnyCost }} 元
+                折合人民币 ≈ ¥{{ calcCnyCost }} 元
                 </span>
               </div>
               <div class="text-right">
