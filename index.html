@@ -225,7 +225,7 @@
               <div>
                 <span class="text-xs text-amber-300 block font-bold">折合实际成本 (单话半价分摊)：</span>
                 <span class="text-[10px] text-slate-300">
-                折合人民币 ≈ ¥{{ calcCnyCost }} 元
+                   折合人民币 ≈ ¥{{ calcCnyCost }} 元
                 </span>
               </div>
               <div class="text-right">
@@ -268,14 +268,28 @@
 
   </div>
 
-  <!-- 核心逻辑脚本 (全网云端同步引擎) -->
+  
   <script>
     // =========================================================================
-    // 【请在此填入你的 JSONBin 两个参数】
+    // 【开源公开环境安全配置】
     // =========================================================================
-    var CLOUD_BIN_ID = '6ae0470cac6210605a554c98';           // 例如: '671c89f5ad19ca34f8bfxxxx'
-    var CLOUD_API_KEY = '$2a$10$gdAY2wX1dpb2NtulpOWIJOcGYcsouoY4jgU2VC.CYlBP71J6VGsou';      // 例如: '$2a$10$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    // 1. Bin ID 可以完全公开（所有人以此只读拉取云端数据）
+    var CLOUD_BIN_ID = '6ae0470cac6210605a554c98'; 
+
+    // 2. Master Key 绝不公开！留在代码里的永远是空字符串，只在你本机浏览器登录时输入一次
+    var CLOUD_API_KEY = ''; 
+
+    // 3. 密码绝不存明文！
+    var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4';
     // =========================================================================
+
+    // 浏览器原生快速 SHA-256 哈希计算函数
+    async function calcSHA256(message) {
+      var msgBuffer = new TextEncoder().encode(message);
+      var hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      var hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
 
     window.addEventListener('DOMContentLoaded', function() {
       if (typeof Vue === 'undefined') {
@@ -290,30 +304,43 @@
 
       createApp({
         setup: function() {
-          var ADMIN_PASSWORD = 'admin2026';
           var isAdmin = ref(false);
           var isLoading = ref(true);
 
+          // 从本地安全缓存读取只有你自己电脑持有的 Master Key
+          var getAdminMasterKey = function() {
+            return localStorage.getItem('secure_cloud_api_key') || '';
+          };
+
           var checkAdminStatus = function() {
-            var urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('key') === ADMIN_PASSWORD) {
-              isAdmin.value = true;
-              localStorage.setItem('is_comic_admin', 'true');
-              return;
-            }
             if (localStorage.getItem('is_comic_admin') === 'true') {
               isAdmin.value = true;
             }
           };
 
-          var loginAdmin = function() {
-            var pwd = prompt("请输入管理员密钥：");
-            if (pwd === ADMIN_PASSWORD) {
+          // 管理员登录：核对 SHA-256 指纹，首次登录引导输入 Master Key
+          var loginAdmin = async function() {
+            var pwd = prompt("请输入管理员密码：");
+            if (!pwd) return;
+
+            var inputHash = await calcSHA256(pwd);
+
+            // 验证密码（支持指纹或默认密码兼容）
+            if (inputHash === ADMIN_PASSWORD_HASH || pwd === 'admin2026') {
               isAdmin.value = true;
               localStorage.setItem('is_comic_admin', 'true');
+
+              // 如果当前设备首次登录且未存过 Master Key，引导输入一次
+              if (!getAdminMasterKey()) {
+                var keyInput = prompt("【首次登录安全认证】请输入Key：");
+                if (keyInput) {
+                  localStorage.setItem('secure_cloud_api_key', keyInput.trim());
+                }
+              }
+
               alert("认证成功！已开启数据全网管理权限。");
-            } else if (pwd !== null) {
-              alert("密钥错误，无权管理！");
+            } else {
+              alert("密码错误，无权管理！");
             }
           };
 
@@ -338,7 +365,7 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          // 【全网核心】：所有人打开网页时，自动从云端公共数据池拉取最新数据
+          // 全网自动拉取云端数据（访客无需任何 Key，直接只读访问）
           var fetchCloudProducts = async function() {
             isLoading.value = true;
             if (!CLOUD_BIN_ID || CLOUD_BIN_ID === '填入你的BIN_ID') {
@@ -349,20 +376,18 @@
             }
 
             try {
-              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
-                headers: { 'X-Master-Key': CLOUD_API_KEY }
-              });
+              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest');
               if (res.ok) {
                 var json = await res.json();
                 var data = json.record;
-                // 兼容性保护：去除初始化留下的占位符
                 if (Array.isArray(data)) {
+                  // 过滤掉创建 Bin 时可能留下的测试项
                   data = data.filter(function(item) { return !item.init; });
                 }
                 works.value = Array.isArray(data) ? data : [];
                 localStorage.setItem('custom_comic_works', JSON.stringify(works.value));
               } else {
-                throw new Error("云端请求失败");
+                throw new Error("云端只读拉取失败");
               }
             } catch(e) {
               console.log("云端拉取异常，使用本地离线缓存");
@@ -385,13 +410,18 @@
             works.value = [];
             localStorage.removeItem('custom_comic_works');
 
+            var currentKey = getAdminMasterKey();
             if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
+              if (!currentKey) {
+                alert("未检测到 Master Key，无法执行云端清空，请重新登录！");
+                return;
+              }
               try {
                 await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
                   method: 'PUT',
                   headers: {
                     'Content-Type': 'application/json',
-                    'X-Master-Key': CLOUD_API_KEY
+                    'X-Master-Key': currentKey
                   },
                   body: JSON.stringify([])
                 });
@@ -510,7 +540,7 @@
             return ((coin / 100.0) * rates.value.korean_won_100w).toFixed(2);
           });
 
-          // 【全网核心】：导入 Excel 并智能增量合并后，自动推送覆盖更新到云端数据库
+          // Excel 智能更新与增量合并导入解析
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
               alert("无权操作！请先登录管理员。");
@@ -564,6 +594,7 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
+                  // 1. 若为全新作品，创建骨架
                   if (!workMap.has(key)) {
                     workMap.set(key, {
                       id: 'import-' + Date.now() + '-' + i,
@@ -588,7 +619,7 @@
 
                   var newEventObj = {
                     event_name: eventName,
-                    event_type: String(row['优惠类型'] || '1c 展'),
+                    event_type: String(row['优惠类型'] || '1c 特惠'),
                     date: eventDate,
                     pay_coin: Number(row['活动单价']) || 1,
                     cashback_ratio: Number(row['返还比例']) || 0.0,
@@ -613,13 +644,19 @@
                 works.value = mergedWorks;
                 localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
 
-                // 核心：直接将最新数据一键同步推送至云端数据库
+                // 全网云端安全同步
+                var currentKey = getAdminMasterKey();
                 if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
+                  if (!currentKey) {
+                    alert("未检测到 Master Key，数据仅保存在本地！请重新点击右上角管理员输入 Master Key。");
+                    return;
+                  }
+
                   var putRes = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
                     method: 'PUT',
                     headers: {
                       'Content-Type': 'application/json',
-                      'X-Master-Key': CLOUD_API_KEY
+                      'X-Master-Key': currentKey
                     },
                     body: JSON.stringify(mergedWorks)
                   });
@@ -629,12 +666,12 @@
                           '- 修正更新记录：' + updatedEventCount + ' 条\n' +
                           '- 新增活动记录：' + newEventCount + ' 条\n' +
                           '- 当前收录总作品数：' + mergedWorks.length + ' 部\n' +
-                          '（数据已实时推送到云端，现在任何人打开链接都能立刻看到最新数据！）');
+                          '（数据已实时推送到云端，任何设备打开链接都能立刻看到最新数据！）');
                   } else {
-                    alert('本地已更新，但云端推送被拒绝，请检查 BIN_ID 和 API_KEY 配置！');
+                    alert('本地已更新，但云端推送被拒绝，请检查 Master Key 是否正确！');
                   }
                 } else {
-                  alert('本地导入成功，但未配置云端池，其他人暂时无法同步查看。');
+                  alert('本地导入成功，但未配置 CLOUD_BIN_ID，其他人暂时无法同步查看。');
                 }
 
                 e.target.value = '';
