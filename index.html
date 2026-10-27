@@ -270,20 +270,18 @@
 
   <!-- 核心逻辑脚本 -->
   <script>
-    // =========================================================================
-    // 【开源公开环境安全配置】
-    // =========================================================================
     var CLOUD_BIN_ID = '6ae0470cac6210605a554c98'; 
-
-    // 
     var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4';
-    // =========================================================================
 
+    // 兼容本地 file:// 协议和非安全上下文
     async function calcSHA256(message) {
-      var msgBuffer = new TextEncoder().encode(message);
-      var hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-      var hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+      if (window.crypto && window.crypto.subtle) {
+        var msgBuffer = new TextEncoder().encode(message);
+        var hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        var hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+      }
+      return '';
     }
 
     window.addEventListener('DOMContentLoaded', function() {
@@ -303,7 +301,7 @@
           var isLoading = ref(true);
 
           var getAdminMasterKey = function() {
-            return localStorage.getItem('secure_cloud_api_key') || '';
+            return (localStorage.getItem('secure_cloud_api_key') || '').trim();
           };
 
           var checkAdminStatus = function() {
@@ -312,22 +310,22 @@
             }
           };
 
-          // 管理员登录（增加了真伪密钥格式严格检查）
+          // 管理员登录
           var loginAdmin = async function() {
             var pwd = prompt("请输入管理员密码：");
             if (!pwd) return;
 
             var inputHash = await calcSHA256(pwd);
 
+            // 验证密码（支持 Hash 或 明文回退）
             if (inputHash === ADMIN_PASSWORD_HASH || pwd === 'admin2026') {
-              // 检查本地是否有合法的 Master Key
               var currentKey = getAdminMasterKey();
-              if (!currentKey || currentKey.indexOf('$2') !== 0 || currentKey.length < 20) {
-                var keyInput = prompt("【首次登录安全认证】请输入你的 Master Key");
-                if (keyInput && keyInput.trim().indexOf('$2') === 0 && keyInput.trim().length > 20) {
+              if (!currentKey) {
+                var keyInput = prompt("【首次登录安全认证】请输入你的 JSONBin Master Key：");
+                if (keyInput && keyInput.trim().length > 10) {
                   localStorage.setItem('secure_cloud_api_key', keyInput.trim());
                 } else {
-                  alert("⚠️ 错误！输入的不是有效的 Master Key，已被拒绝登录！\n请填写正确的 Master Key！");
+                  alert("⚠️ 请输入有效的 Master Key！");
                   return;
                 }
               }
@@ -335,12 +333,14 @@
               isAdmin.value = true;
               localStorage.setItem('is_comic_admin', 'true');
               alert("认证成功！已开启数据全网管理权限。");
+              // 登录后立刻重新拉取一次云端（防止之前因 Private Bin 缺少 Key 导致读取失败）
+              fetchCloudProducts();
             } else {
               alert("密码错误，无权管理！");
             }
           };
 
-          // 退出管理（彻底清除本地钥匙，方便换电脑或换错Key后重新录入）
+          // 退出管理
           var logoutAdmin = function() {
             isAdmin.value = false;
             localStorage.removeItem('is_comic_admin');
@@ -352,18 +352,18 @@
 
           var works = ref([]);
 
-          // 各平台专属定制单价
+          // 各平台换算单价
           var rates = ref({
-            lezhin_kr: 0.44,       // Lezhin KR: per 1c = 0.44 元
-            bomtoon: 0.41,         // Bomtoon: per 1c = 0.41 元
-            korean_won_100w: 0.44, // Ridibooks & Mr.Blue: 100₩ = 0.44 元
-            lezhin_us_30c: 2.30    // Lezhin US: per 30c = 2.30 元
+            lezhin_kr: 0.44,       
+            bomtoon: 0.41,         
+            korean_won_100w: 0.44, 
+            lezhin_us_30c: 2.30    
           });
 
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          // 自动拉取云端数据
+          // 自动拉取云端数据（已修复：如果本地有 Key 则带上，解决 Private Bin 读取 401 报错）
           var fetchCloudProducts = async function() {
             isLoading.value = true;
             if (!CLOUD_BIN_ID || CLOUD_BIN_ID === '填入你的BIN_ID') {
@@ -374,7 +374,16 @@
             }
 
             try {
-              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest');
+              var headers = {};
+              var savedKey = getAdminMasterKey();
+              if (savedKey) {
+                headers['X-Master-Key'] = savedKey;
+              }
+
+              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
+                headers: headers
+              });
+
               if (res.ok) {
                 var json = await res.json();
                 var data = json.record;
@@ -383,11 +392,18 @@
                 }
                 works.value = Array.isArray(data) ? data : [];
                 localStorage.setItem('custom_comic_works', JSON.stringify(works.value));
+              } else if (res.status === 401 || res.status === 403) {
+                throw new Error("401");
               } else {
-                throw new Error("云端只读拉取失败");
+                throw new Error("HTTP " + res.status);
               }
             } catch(e) {
-              console.log("云端拉取异常，使用本地离线缓存");
+              if (e.message === "401") {
+                console.warn("当前 Bin 为私有状态（Private），未提供有效 Key 无法读取。");
+                if (!isAdmin.value) {
+                  alert("⚠️ 提示：云端数据存储为私有 (Private) 状态，请管理员先登录输入 Key，或者到 JSONBin 将该 Bin 设为 Public 即可让所有人免密查看！");
+                }
+              }
               var localBackup = localStorage.getItem('custom_comic_works');
               works.value = localBackup ? JSON.parse(localBackup) : [];
             } finally {
@@ -399,15 +415,15 @@
             fetchCloudProducts();
           });
 
-          // 【严密修复】：清空云端数据库（只有云端真正返回成功后才清空本地！）
+          // 清空云端数据
           var clearAllData = async function() {
             if (!confirm("⚠️ 确定要清空云端和本地的全部作品数据吗？")) {
               return;
             }
 
             var currentKey = getAdminMasterKey();
-            if (!currentKey || currentKey.indexOf('$2') !== 0) {
-              alert("❌ 未检测到有效 Master Key，清空操作被拒绝！请点击【退出并换Key】重新输入正确的！");
+            if (!currentKey) {
+              alert("❌ 未检测到有效 Master Key，请点击【退出并换Key】重新输入！");
               return;
             }
 
@@ -423,12 +439,11 @@
                 });
 
                 if (res.ok) {
-                  // 云端真正清空成功，才清空本地画面
                   works.value = [];
                   localStorage.removeItem('custom_comic_works');
-                  alert("✅ 云端数据库已彻底清空！全网所有人刷新都将变为空白。");
+                  alert("✅ 云端数据库已彻底清空！");
                 } else {
-                  alert("❌ 云端清空被拒绝！你的 Master Key 是错误的！\n云端原有数据完好无损，未被修改。");
+                  alert("❌ 云端清空被拒绝 (状态码 " + res.status + ")！Master Key 可能不正确。");
                 }
               } catch(e) {
                 alert("❌ 网络连接失败，清空未生效！");
@@ -509,7 +524,6 @@
             return Math.floor(calcDiscountedPay.value * (calculator.value.event.cashback_ratio || 0));
           });
 
-          // 100% 返还按“单话半价”计算
           var calcNetCoinCost = computed(function() {
             if (!calculator.value.work || !calculator.value.event) return 0;
             if (isPayback100.value) {
@@ -544,7 +558,7 @@
             return ((coin / 100.0) * rates.value.korean_won_100w).toFixed(2);
           });
 
-          // 【严密修复】：Excel 智能导入（只有云端真正保存成功才提示全网成功）
+          // Excel 导入与全网同步
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
               alert("无权操作！请先登录管理员。");
@@ -648,8 +662,8 @@
                 // 云端校验推送
                 var currentKey = getAdminMasterKey();
                 if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
-                  if (!currentKey || currentKey.indexOf('$2') !== 0) {
-                    alert("❌ 无法同步云端！你的 Master Key 是无效的！请点击【退出并换Key】重新输入！");
+                  if (!currentKey) {
+                    alert("❌ 无法同步云端！请点击【退出并换Key】重新输入有效 Master Key！");
                     return;
                   }
 
@@ -663,7 +677,6 @@
                   });
 
                   if (putRes.ok) {
-                    // 云端真正保存成功后，才应用到本地
                     works.value = mergedWorks;
                     localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
                     alert('🎉 全网发布成功！\n' +
@@ -672,7 +685,7 @@
                           '- 当前收录总作品数：' + mergedWorks.length + ' 部\n' +
                           '（数据已实时推送到云端！）');
                   } else {
-                    alert('❌ 云端同步被拒绝！Master Key 错误，未能存入云端！');
+                    alert('❌ 云端同步被拒绝 (状态码 ' + putRes.status + ')！请检查 Master Key 是否正确。');
                   }
                 }
 
