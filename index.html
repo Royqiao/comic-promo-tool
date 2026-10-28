@@ -150,7 +150,8 @@
             </div>
             <h2 class="text-xl font-bold text-slate-900 flex items-baseline gap-2 flex-wrap">
                <span>{{ work.title_zh }}</span>
-               <span v-if="work.title_ko && work.title_ko !== work.title_zh" class="text-sm font-normal text-slate-500">({{ work.title_ko }})</span>
+          <!-- 加入了 .trim() 过滤空格，并增加一个兜底判断 -->
+               <span v-if="work.title_ko && work.title_ko.trim() !== work.title_zh.trim() && work.title_zh !== '未命名作品'" class="text-sm font-normal text-slate-500">({{ work.title_ko }})</span>
           </h2>
           </div>
           <div class="text-right">
@@ -645,7 +646,13 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
-                  // --- 核心优化 1：智能匹配逻辑（中或韩有一个相同即合并） ---
+                  // 核心过滤：如果中文名全是韩文，或者和韩文名完全一样，直接把它视为空！
+                  var isKorean = /[\u3131-\uD79D]/.test(titleZh);
+                  if (isKorean || titleZh === titleKo) {
+                      titleZh = ''; 
+                  }
+
+                  // 智能匹配
                   var targetWork = null;
                   for (var w of workMap.values()) {
                     if (w.platform === platform) {
@@ -656,7 +663,7 @@
                     }
                   }
 
-                  // 如果没找到匹配的作品，则新建
+                  // 没找到就新建
                   if (!targetWork) {
                     var baseName = titleKo || titleZh || '未命名';
                     var newKey = platform + '_' + baseName; 
@@ -664,7 +671,7 @@
                     targetWork = {
                       id: 'import-' + Date.now() + '-' + i,
                       title_ko: titleKo,
-                      title_zh: titleZh || titleKo, // 如果没中文名，暂时用韩文占位
+                      title_zh: titleZh || titleKo, // 如果没有有效中文，用韩文占位
                       platform: platform,
                       currency: currency,
                       genre: row['类型'] || 'BL',
@@ -678,24 +685,12 @@
                   if (row['单话原价']) targetWork.original_coin_per_ep = Number(row['单话原价']);
                   if (row['类型']) targetWork.genre = String(row['类型']);
                   
-                  // 先补充韩文名（如果原来没有的话）
+                  // 补充和覆盖逻辑
                   if (titleKo && !targetWork.title_ko) targetWork.title_ko = titleKo;
 
-                  // --- 终极防覆盖逻辑 ---
+                  // 只有当读到真正的有效中文时，才允许覆盖！
                   if (titleZh) {
-                    // 1. 如果新来的中文名 和 韩文名一模一样，说明是填错了，直接无视它！
-                    var isDuplicateOfKo = (titleZh === titleKo);
-                    // 2. 判断新来的名字是不是纯韩文
-                    var isNewKorean = /[\u3131-\uD79D]/.test(titleZh);
-                    // 3. 判断旧的中文名是不是空的，或者是用来占位的韩文
-                    var isOldEmptyOrKo = !targetWork.title_zh || targetWork.title_zh === '未命名' || /[\u3131-\uD79D]/.test(targetWork.title_zh);
-
-                    // 只有当“不是填错的情况”，并且（旧名字是空的/韩文 或者 新名字是真中文）时，才更新
-                    if (!isDuplicateOfKo) {
-                      if (isOldEmptyOrKo || !isNewKorean) {
-                        targetWork.title_zh = titleZh;
-                      }
-                    }
+                      targetWork.title_zh = titleZh;
                   }
                   
                   var eventName = String(row['活动名称'] || '大促特惠');
