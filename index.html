@@ -148,11 +148,13 @@
               <span class="px-2.5 py-0.5 text-xs font-bold rounded-md" :class="getPlatformBadge(work.platform)">{{ work.platform }}</span>
               <span class="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-medium">{{ work.genre }}</span>
             </div>
+            <!-- 作品标题展示：主标题必为中文（如果存在中文），韩文在括号中展示 -->
             <h2 class="text-xl font-bold text-slate-900 flex items-baseline gap-2 flex-wrap">
-               <span>{{ work.title_zh }}</span>
-          <!-- 加入了 .trim() 过滤空格，并增加一个兜底判断 -->
-               <span v-if="work.title_ko && work.title_ko.trim() !== work.title_zh.trim() && work.title_zh !== '未命名作品'" class="text-sm font-normal text-slate-500">({{ work.title_ko }})</span>
-          </h2>
+              <span>{{ work.title_zh }}</span>
+              <span v-if="work.title_ko && work.title_ko.trim() !== work.title_zh.trim() && work.title_zh !== '未命名作品'" class="text-sm font-normal text-slate-500">
+                ({{ work.title_ko }})
+              </span>
+            </h2>
           </div>
           <div class="text-right">
             <span class="text-xs text-slate-400 block">常规单话原价</span>
@@ -271,10 +273,10 @@
 
   <!-- 核心逻辑脚本 -->
   <script>
+    // 🚩 填入你自己的 JSONBin 存储桶 ID
     var CLOUD_BIN_ID = '6ae0470cac6210605a554c98'; 
-    var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4';
+    var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4'; // 默认密码：admin2026
 
-    // 兼容本地 file:// 协议和非安全上下文
     async function calcSHA256(message) {
       if (window.crypto && window.crypto.subtle) {
         var msgBuffer = new TextEncoder().encode(message);
@@ -311,8 +313,7 @@
             }
           };
 
-          // 管理员登录
-                    // 验证 Master Key 是否能访问指定 Bin
+          // 验证 Master Key 是否能访问指定 Bin
           var testMasterKey = async function(key) {
             try {
               var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
@@ -324,7 +325,7 @@
             }
           };
 
-          // 管理员登录（带真实 Key 验证）
+          // 管理员登录
           var loginAdmin = async function() {
             var pwd = prompt("请输入管理员密码：");
             if (pwd === null) return;
@@ -352,7 +353,6 @@
               return;
             }
 
-            // 真正验证 Key 有效性
             var result = await testMasterKey(finalKey);
             if (!result.ok) {
               var msg = "❌ 该 Master Key 无法访问 Bin\n" + CLOUD_BIN_ID + "\n\n";
@@ -360,7 +360,6 @@
               else if (result.status === 403) msg += "403：Key 权限不足（可能是 Access Key，或请求超限）。";
               else if (result.status === 0) msg += "网络/CORS 错误：" + (result.error || '');
               else msg += "HTTP " + result.status;
-              msg += "\n\n请到 JSONBin 控制台确认：\n1. Bin ID 是否正确\n2. 是否用的是 Master Key（不是 Access Key）\n3. Bin 是否属于该 Key 的账户\n4. 是否是 v3 的 Key（v2 旧 Key 会 401）";
               alert(msg);
               localStorage.removeItem('secure_cloud_api_key');
               return;
@@ -369,7 +368,7 @@
             localStorage.setItem('secure_cloud_api_key', finalKey);
             isAdmin.value = true;
             localStorage.setItem('is_comic_admin', 'true');
-            alert("✅ 认证成功！Master Key 已验证可用。");
+            alert("✅ 认证成功！已开启数据管理权限。");
             fetchCloudProducts();
           };
 
@@ -378,7 +377,7 @@
             isAdmin.value = false;
             localStorage.removeItem('is_comic_admin');
             localStorage.removeItem('secure_cloud_api_key');
-            alert("已退出管理员模式，本地密钥已清空。下次登录可重新输入正确的 Master Key！");
+            alert("已退出管理员模式，本地密钥已清空。下次登录可重新输入 Master Key！");
           };
 
           checkAdminStatus();
@@ -396,7 +395,7 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          // 自动拉取云端数据（已修复：如果本地有 Key 则带上，解决 Private Bin 读取 401 报错）
+          // 自动拉取云端数据
           var fetchCloudProducts = async function() {
             isLoading.value = true;
             if (!CLOUD_BIN_ID || CLOUD_BIN_ID === '填入你的BIN_ID') {
@@ -425,7 +424,7 @@
                 }
                 works.value = Array.isArray(data) ? data : [];
                 localStorage.setItem('custom_comic_works', JSON.stringify(works.value));
-                            } else if (res.status === 401 || res.status === 403) {
+              } else if (res.status === 401 || res.status === 403) {
                 throw new Error("AUTH_" + res.status);
               } else {
                 throw new Error("HTTP " + res.status);
@@ -434,9 +433,7 @@
               if (e.message && e.message.indexOf("AUTH_") === 0) {
                 console.warn("云端鉴权失败：" + e.message);
                 if (isAdmin.value) {
-                  alert("❌ 云端鉴权失败（" + e.message + "）。\n你保存的 Master Key 已失效或与 Bin 不匹配，请点【退出并换Key】重新输入。");
-                } else {
-                  alert("⚠️ 云端数据为私有 (Private)，请管理员登录并输入有效 Key。");
+                  alert("❌ 云端鉴权失败（" + e.message + "）。\nMaster Key 已失效或不匹配，请点【退出并换Key】重新输入。");
                 }
               }
               var localBackup = localStorage.getItem('custom_comic_works');
@@ -452,7 +449,7 @@
 
           // 清空云端数据
           var clearAllData = async function() {
-            if (!confirm("⚠️ 确定要清空云端和本地的全部作品数据吗？")) {
+            if (!confirm("⚠️ 确定要清空云端和本地的全部作品数据吗？清空后可以重新导入！")) {
               return;
             }
 
@@ -476,7 +473,7 @@
                 if (res.ok) {
                   works.value = [];
                   localStorage.removeItem('custom_comic_works');
-                  alert("✅ 云端数据库已彻底清空！");
+                  alert("✅ 云端数据库已彻底清空！现在可以重新导入干净的 Excel 了。");
                 } else {
                   alert("❌ 云端清空被拒绝 (状态码 " + res.status + ")！Master Key 可能不正确。");
                 }
@@ -593,7 +590,9 @@
             return ((coin / 100.0) * rates.value.korean_won_100w).toFixed(2);
           });
 
-          // Excel 导入与全网同步
+          // =========================================================
+          // 🌟 核心：Excel 导入（采用【汉字白名单优先机制】）
+          // =========================================================
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
               alert("无权操作！请先登录管理员。");
@@ -615,6 +614,11 @@
               return String(val);
             };
 
+            // 判别真实汉字
+            var hasChinese = function(str) {
+              return /[\u4e00-\u9fa5]/.test(str);
+            };
+
             var reader = new FileReader();
             reader.onload = async function(evt) {
               try {
@@ -632,9 +636,9 @@
                 var updatedEventCount = 0;
 
                 rows.forEach(function(row, i) {
-                                    var platform = String(row['平台'] || 'Lezhin KR').trim();
-                  var titleZh = String(row['作品中文名'] || '').trim();
-                  var titleKo = String(row['作品韩文名'] || '').trim();
+                  var platform = String(row['平台'] || 'Lezhin KR').trim();
+                  var rawZh = String(row['作品中文名'] || '').trim();
+                  var rawKo = String(row['作品韩文名'] || '').trim();
 
                   var currency = 'Coin';
                   if (platform === 'Lezhin US') currency = 'US Coin';
@@ -646,32 +650,26 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
-                  // 核心过滤：如果中文名全是韩文，或者和韩文名完全一样，直接把它视为空！
-                  var isKorean = /[\u3131-\uD79D]/.test(titleZh);
-                  if (isKorean || titleZh === titleKo) {
-                      titleZh = ''; 
-                  }
-
-                  // 智能匹配
+                  // 1. 精准寻找已有作品（优先根据“平台 + 韩文原名”识别为同一作品）
                   var targetWork = null;
                   for (var w of workMap.values()) {
                     if (w.platform === platform) {
-                      if ((titleZh && w.title_zh === titleZh) || (titleKo && w.title_ko === titleKo)) {
+                      if ((rawKo && w.title_ko === rawKo) || (hasChinese(rawZh) && w.title_zh === rawZh)) {
                         targetWork = w;
                         break;
                       }
                     }
                   }
 
-                  // 没找到就新建
+                  // 2. 没找到则新建
                   if (!targetWork) {
-                    var baseName = titleKo || titleZh || '未命名';
+                    var baseName = rawKo || rawZh || ('未命名_' + i);
                     var newKey = platform + '_' + baseName; 
                     
                     targetWork = {
                       id: 'import-' + Date.now() + '-' + i,
-                      title_ko: titleKo,
-                      title_zh: titleZh || titleKo, // 如果没有有效中文，用韩文占位
+                      title_ko: rawKo,
+                      title_zh: rawZh || rawKo || '未命名作品',
                       platform: platform,
                       currency: currency,
                       genre: row['类型'] || 'BL',
@@ -681,18 +679,32 @@
                     workMap.set(newKey, targetWork);
                   }
 
-                  // 更新基础信息
+                  // 3. 补充韩文原名
+                  if (rawKo && (!targetWork.title_ko || !targetWork.title_ko.trim())) {
+                    targetWork.title_ko = rawKo;
+                  }
+
+                  // 4. 【核心铁律】：中文名智能提炼与锁定（真汉字绝对优先）
+                  // 只要当前行含有真实汉字，直接采纳并升级为官方中文标题！
+                  if (hasChinese(rawZh)) {
+                    targetWork.title_zh = rawZh;
+                  } 
+                  // 如果作品目前还没有汉字标题（仍是韩文/英文占位）
+                  else if (!hasChinese(targetWork.title_zh)) {
+                    // 若当前行有值且不是韩文乱入，允许暂代
+                    if (rawZh && !/[\u3131-\uD79D]/.test(rawZh)) {
+                      targetWork.title_zh = rawZh;
+                    } else if (rawKo && !targetWork.title_zh) {
+                      targetWork.title_zh = rawKo;
+                    }
+                  }
+                  // 哪怕之后某行误填了韩文或英文，只要作品已有汉字，一律绝不被覆盖！
+
+                  // 更新原价和类型
                   if (row['单话原价']) targetWork.original_coin_per_ep = Number(row['单话原价']);
                   if (row['类型']) targetWork.genre = String(row['类型']);
                   
-                  // 补充和覆盖逻辑
-                  if (titleKo && !targetWork.title_ko) targetWork.title_ko = titleKo;
-
-                  // 只有当读到真正的有效中文时，才允许覆盖！
-                  if (titleZh) {
-                      targetWork.title_zh = titleZh;
-                  }
-                  
+                  // 5. 记录活动时间线
                   var eventName = String(row['活动名称'] || '大促特惠');
                   var eventDate = formatExcelDate(row['活动时间']);
 
