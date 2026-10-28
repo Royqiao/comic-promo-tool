@@ -148,10 +148,10 @@
               <span class="px-2.5 py-0.5 text-xs font-bold rounded-md" :class="getPlatformBadge(work.platform)">{{ work.platform }}</span>
               <span class="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-medium">{{ work.genre }}</span>
             </div>
-            <h2 class="text-xl font-bold text-slate-900">
-              {{ work.title_zh }} 
-              <span v-if="work.title_ko" class="text-sm font-normal text-slate-500">({{ work.title_ko }})</span>
-            </h2>
+            <h2 class="text-xl font-bold text-slate-900 flex items-baseline gap-2 flex-wrap">
+               <span>{{ work.title_zh }}</span>
+               <span v-if="work.title_ko && work.title_ko !== work.title_zh" class="text-sm font-normal text-slate-500">({{ work.title_ko }})</span>
+          </h2>
           </div>
           <div class="text-right">
             <span class="text-xs text-slate-400 block">常规单话原价</span>
@@ -678,14 +678,23 @@
                   if (row['单话原价']) targetWork.original_coin_per_ep = Number(row['单话原价']);
                   if (row['类型']) targetWork.genre = String(row['类型']);
                   
-                  // --- 核心优化 2：智能名称更新（防止韩文覆盖中文） ---
+                  // 先补充韩文名（如果原来没有的话）
                   if (titleKo && !targetWork.title_ko) targetWork.title_ko = titleKo;
 
+                  // --- 终极防覆盖逻辑 ---
                   if (titleZh) {
+                    // 1. 如果新来的中文名 和 韩文名一模一样，说明是填错了，直接无视它！
+                    var isDuplicateOfKo = (titleZh === titleKo);
+                    // 2. 判断新来的名字是不是纯韩文
                     var isNewKorean = /[\u3131-\uD79D]/.test(titleZh);
+                    // 3. 判断旧的中文名是不是空的，或者是用来占位的韩文
                     var isOldEmptyOrKo = !targetWork.title_zh || targetWork.title_zh === '未命名' || /[\u3131-\uD79D]/.test(targetWork.title_zh);
-                    if ((isOldEmptyOrKo && !isNewKorean) || (!isOldEmptyOrKo && !isNewKorean)) {
-                      targetWork.title_zh = titleZh;
+
+                    // 只有当“不是填错的情况”，并且（旧名字是空的/韩文 或者 新名字是真中文）时，才更新
+                    if (!isDuplicateOfKo) {
+                      if (isOldEmptyOrKo || !isNewKorean) {
+                        targetWork.title_zh = titleZh;
+                      }
                     }
                   }
                   
