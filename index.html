@@ -686,11 +686,22 @@
                   if (row['类型']) targetWork.genre = String(row['类型']);
                   
                   // 补充和覆盖逻辑
+                 // 补充韩文名
                   if (titleKo && !targetWork.title_ko) targetWork.title_ko = titleKo;
 
-                  // 只有当读到真正的有效中文时，才允许覆盖！
+                  // 终极名称更新逻辑：纯中文绝对优先！
                   if (titleZh) {
-                      targetWork.title_zh = titleZh;
+                      // 判断新来的名字和旧名字是否包含纯中文字符
+                      var isNewRealChinese = /[\u4e00-\u9fa5]/.test(titleZh);
+                      var isOldRealChinese = targetWork.title_zh && /[\u4e00-\u9fa5]/.test(targetWork.title_zh);
+
+                      // 如果旧名字是真中文，且新来的名字不是真中文（比如是英文 Checkmate），则拒绝覆盖！
+                      if (isOldRealChinese && !isNewRealChinese) {
+                          // 什么都不做，保留原中文
+                      } else {
+                          // 其他情况（比如新来的是真中文），直接覆盖！
+                          targetWork.title_zh = titleZh;
+                      }
                   }
                   
                   var eventName = String(row['活动名称'] || '大促特惠');
