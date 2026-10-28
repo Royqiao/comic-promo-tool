@@ -632,9 +632,21 @@
                 var updatedEventCount = 0;
 
                 rows.forEach(function(row, i) {
-                                    var platform = String(row['平台'] || 'Lezhin KR').trim();
+                                                      var platform = String(row['平台'] || 'Lezhin KR').trim();
                   var titleZh = String(row['作品中文名'] || '').trim();
                   var titleKo = String(row['作品韩文名'] || '').trim();
+
+                  // ==========================================
+                  // 1. 源头暴力清洗：把假的“中文名”直接洗成空白！
+                  // ==========================================
+                  // 如果中文名包含韩文，或者和韩文名完全一样，视为假中文
+                  if (/[\u3131-\uD79D]/.test(titleZh) || titleZh === titleKo) {
+                      titleZh = '';
+                  }
+                  // 如果平台是 Lezhin KR 等韩国平台，且中文名纯是英文字母（如 Checkmate），视为假中文
+                  if (platform !== 'Lezhin US' && /^[a-zA-Z\s]+$/.test(titleZh)) {
+                      titleZh = '';
+                  }
 
                   var currency = 'Coin';
                   if (platform === 'Lezhin US') currency = 'US Coin';
@@ -646,13 +658,9 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
-                  // 核心过滤：如果中文名全是韩文，或者和韩文名完全一样，直接把它视为空！
-                  var isKorean = /[\u3131-\uD79D]/.test(titleZh);
-                  if (isKorean || titleZh === titleKo) {
-                      titleZh = ''; 
-                  }
-
-                  // 智能匹配
+                  // ==========================================
+                  // 2. 匹配已有作品
+                  // ==========================================
                   var targetWork = null;
                   for (var w of workMap.values()) {
                     if (w.platform === platform) {
@@ -663,7 +671,7 @@
                     }
                   }
 
-                  // 没找到就新建
+                  // 3. 没找到则新建
                   if (!targetWork) {
                     var baseName = titleKo || titleZh || '未命名';
                     var newKey = platform + '_' + baseName; 
@@ -671,7 +679,7 @@
                     targetWork = {
                       id: 'import-' + Date.now() + '-' + i,
                       title_ko: titleKo,
-                      title_zh: titleZh || titleKo, // 如果没有有效中文，用韩文占位
+                      title_zh: titleZh || titleKo, // 如果没有真中文，暂用韩文占位
                       platform: platform,
                       currency: currency,
                       genre: row['类型'] || 'BL',
@@ -685,23 +693,14 @@
                   if (row['单话原价']) targetWork.original_coin_per_ep = Number(row['单话原价']);
                   if (row['类型']) targetWork.genre = String(row['类型']);
                   
-                  // 补充和覆盖逻辑
-                 // 补充韩文名
+                  // ==========================================
+                  // 4. 终极覆盖逻辑
+                  // ==========================================
                   if (titleKo && !targetWork.title_ko) targetWork.title_ko = titleKo;
-
-                  // 终极名称更新逻辑：纯中文绝对优先！
+                  
+                  // 因为第一步已经把假中文洗成了空（''），所以这里只要 titleZh 有值，绝对是真中文！
                   if (titleZh) {
-                      // 判断新来的名字和旧名字是否包含纯中文字符
-                      var isNewRealChinese = /[\u4e00-\u9fa5]/.test(titleZh);
-                      var isOldRealChinese = targetWork.title_zh && /[\u4e00-\u9fa5]/.test(targetWork.title_zh);
-
-                      // 如果旧名字是真中文，且新来的名字不是真中文（比如是英文 Checkmate），则拒绝覆盖！
-                      if (isOldRealChinese && !isNewRealChinese) {
-                          // 什么都不做，保留原中文
-                      } else {
-                          // 其他情况（比如新来的是真中文），直接覆盖！
-                          targetWork.title_zh = titleZh;
-                      }
+                      targetWork.title_zh = titleZh;
                   }
                   
                   var eventName = String(row['活动名称'] || '大促特惠');
