@@ -311,33 +311,65 @@
           };
 
           // 管理员登录
+                    // 验证 Master Key 是否能访问指定 Bin
+          var testMasterKey = async function(key) {
+            try {
+              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
+                headers: { 'X-Master-Key': key }
+              });
+              return { ok: res.ok, status: res.status };
+            } catch (e) {
+              return { ok: false, status: 0, error: e.message };
+            }
+          };
+
+          // 管理员登录（带真实 Key 验证）
           var loginAdmin = async function() {
             var pwd = prompt("请输入管理员密码：");
-            if (!pwd) return;
+            if (pwd === null) return;
+            pwd = pwd.trim();
 
             var inputHash = await calcSHA256(pwd);
-
-            // 验证密码（支持 Hash 或 明文回退）
-            if (inputHash === ADMIN_PASSWORD_HASH || pwd === 'admin2026') {
-              var currentKey = getAdminMasterKey();
-              if (!currentKey) {
-                var keyInput = prompt("【首次登录安全认证】请输入你的 JSONBin Master Key：");
-                if (keyInput && keyInput.trim().length > 10) {
-                  localStorage.setItem('secure_cloud_api_key', keyInput.trim());
-                } else {
-                  alert("⚠️ 请输入有效的 Master Key！");
-                  return;
-                }
-              }
-
-              isAdmin.value = true;
-              localStorage.setItem('is_comic_admin', 'true');
-              alert("认证成功！已开启数据全网管理权限。");
-              // 登录后立刻重新拉取一次云端（防止之前因 Private Bin 缺少 Key 导致读取失败）
-              fetchCloudProducts();
-            } else {
+            if (inputHash !== ADMIN_PASSWORD_HASH && pwd !== 'admin2026') {
               alert("密码错误，无权管理！");
+              return;
             }
+
+            var savedKey = getAdminMasterKey();
+            var keyInput = prompt(
+              savedKey
+                ? "检测到已保存的 Key：" + savedKey.slice(0, 14) + "...\n如需更换请粘贴新的 Master Key，留空则沿用旧 Key："
+                : "【首次登录】请输入你的 JSONBin Master Key（形如 $2b$10$...）：",
+              ""
+            );
+            if (keyInput === null) return;
+            keyInput = keyInput.trim();
+
+            var finalKey = keyInput || savedKey;
+            if (!finalKey) {
+              alert("⚠️ 未提供 Master Key，无法继续。");
+              return;
+            }
+
+            // 真正验证 Key 有效性
+            var result = await testMasterKey(finalKey);
+            if (!result.ok) {
+              var msg = "❌ 该 Master Key 无法访问 Bin\n" + CLOUD_BIN_ID + "\n\n";
+              if (result.status === 401) msg += "401：Key 无效，或该 Bin 不属于此 Key 的账户。";
+              else if (result.status === 403) msg += "403：Key 权限不足（可能是 Access Key，或请求超限）。";
+              else if (result.status === 0) msg += "网络/CORS 错误：" + (result.error || '');
+              else msg += "HTTP " + result.status;
+              msg += "\n\n请到 JSONBin 控制台确认：\n1. Bin ID 是否正确\n2. 是否用的是 Master Key（不是 Access Key）\n3. Bin 是否属于该 Key 的账户\n4. 是否是 v3 的 Key（v2 旧 Key 会 401）";
+              alert(msg);
+              localStorage.removeItem('secure_cloud_api_key');
+              return;
+            }
+
+            localStorage.setItem('secure_cloud_api_key', finalKey);
+            isAdmin.value = true;
+            localStorage.setItem('is_comic_admin', 'true');
+            alert("✅ 认证成功！Master Key 已验证可用。");
+            fetchCloudProducts();
           };
 
           // 退出管理
@@ -392,16 +424,18 @@
                 }
                 works.value = Array.isArray(data) ? data : [];
                 localStorage.setItem('custom_comic_works', JSON.stringify(works.value));
-              } else if (res.status === 401 || res.status === 403) {
-                throw new Error("401");
+                            } else if (res.status === 401 || res.status === 403) {
+                throw new Error("AUTH_" + res.status);
               } else {
                 throw new Error("HTTP " + res.status);
               }
             } catch(e) {
-              if (e.message === "401") {
-                console.warn("当前 Bin 为私有状态（Private），未提供有效 Key 无法读取。");
-                if (!isAdmin.value) {
-                  alert("⚠️ 提示：云端数据存储为私有 (Private) 状态，请管理员先登录输入 Key，或者到 JSONBin 将该 Bin 设为 Public 即可让所有人免密查看！");
+              if (e.message && e.message.indexOf("AUTH_") === 0) {
+                console.warn("云端鉴权失败：" + e.message);
+                if (isAdmin.value) {
+                  alert("❌ 云端鉴权失败（" + e.message + "）。\n你保存的 Master Key 已失效或与 Bin 不匹配，请点【退出并换Key】重新输入。");
+                } else {
+                  alert("⚠️ 云端数据为私有 (Private)，请管理员登录并输入有效 Key。");
                 }
               }
               var localBackup = localStorage.getItem('custom_comic_works');
