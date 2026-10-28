@@ -631,10 +631,9 @@
                 var updatedEventCount = 0;
 
                 rows.forEach(function(row, i) {
-                  var platform = row['平台'] || 'Lezhin KR';
-                  var titleZh = row['作品中文名'] || '未命名作品';
-                  var titleKo = row['作品韩文名'] || titleZh;
-                  var key = platform + '_' + titleKo;
+                                    var platform = String(row['平台'] || 'Lezhin KR').trim();
+                  var titleZh = String(row['作品中文名'] || '').trim();
+                  var titleKo = String(row['作品韩文名'] || '').trim();
 
                   var currency = 'Coin';
                   if (platform === 'Lezhin US') currency = 'US Coin';
@@ -646,25 +645,50 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
-                  if (!workMap.has(key)) {
-                    workMap.set(key, {
+                  // --- 核心优化 1：智能匹配逻辑（中或韩有一个相同即合并） ---
+                  var targetWork = null;
+                  for (var w of workMap.values()) {
+                    if (w.platform === platform) {
+                      if ((titleZh && w.title_zh === titleZh) || (titleKo && w.title_ko === titleKo)) {
+                        targetWork = w;
+                        break;
+                      }
+                    }
+                  }
+
+                  // 如果没找到匹配的作品，则新建
+                  if (!targetWork) {
+                    var baseName = titleKo || titleZh || '未命名';
+                    var newKey = platform + '_' + baseName; 
+                    
+                    targetWork = {
                       id: 'import-' + Date.now() + '-' + i,
-                      title_ko: String(titleKo),
-                      title_zh: String(titleZh),
-                      platform: String(platform),
+                      title_ko: titleKo,
+                      title_zh: titleZh || titleKo, // 如果没中文名，暂时用韩文占位
+                      platform: platform,
                       currency: currency,
                       genre: row['类型'] || 'BL',
                       original_coin_per_ep: Number(row['单话原价']) || defOriginal,
                       history: []
-                    });
+                    };
+                    workMap.set(newKey, targetWork);
                   }
 
-                  var targetWork = workMap.get(key);
-
+                  // 更新基础信息
                   if (row['单话原价']) targetWork.original_coin_per_ep = Number(row['单话原价']);
-                  if (row['作品中文名']) targetWork.title_zh = String(row['作品中文名']);
                   if (row['类型']) targetWork.genre = String(row['类型']);
+                  
+                  // --- 核心优化 2：智能名称更新（防止韩文覆盖中文） ---
+                  if (titleKo && !targetWork.title_ko) targetWork.title_ko = titleKo;
 
+                  if (titleZh) {
+                    var isNewKorean = /[\u3131-\uD79D]/.test(titleZh);
+                    var isOldEmptyOrKo = !targetWork.title_zh || targetWork.title_zh === '未命名' || /[\u3131-\uD79D]/.test(targetWork.title_zh);
+                    if ((isOldEmptyOrKo && !isNewKorean) || (!isOldEmptyOrKo && !isNewKorean)) {
+                      targetWork.title_zh = titleZh;
+                    }
+                  }
+                  
                   var eventName = String(row['活动名称'] || '大促特惠');
                   var eventDate = formatExcelDate(row['活动时间']);
 
