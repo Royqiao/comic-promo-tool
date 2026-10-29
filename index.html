@@ -608,10 +608,7 @@
                 var rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
                 var workMap = new Map();
-                works.value.forEach(function(w) {
-                  var oldKey = w.platform + '_' + (w.title_ko || w.title_zh);
-                  workMap.set(oldKey, JSON.parse(JSON.stringify(w)));
-                });
+                
 
                 var newEventCount = 0;
                 var updatedEventCount = 0;
@@ -676,14 +673,10 @@
                   }
 
                   // 5. 中文名汉字白名单锁定
-                  if (hasChinese(rawZh)) {
-                    targetWork.title_zh = rawZh;
+                 if (hasChinese(rawZh)) {
+                  targetWork.title_zh = rawZh;
                   } else if (!hasChinese(targetWork.title_zh)) {
-                    if (rawZh && !/[\u3131-\uD79D]/.test(rawZh)) {
-                      targetWork.title_zh = rawZh;
-                    } else if (rawKo && !targetWork.title_zh) {
-                      targetWork.title_zh = rawKo;
-                    }
+                 targetWork.title_zh = rawZh || rawKo || '未命名作品';
                   }
 
                   if (row['类型']) targetWork.genre = String(row['类型']);
