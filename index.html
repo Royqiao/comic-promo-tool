@@ -776,7 +776,8 @@
                     '- 当前全网收录总数：' + mergedWorks.length + ' 部'
                   );
                 } else {
-                  alert('❌ 云端同步失败 (' + putRes.status + ')！');
+                  var errData = await putRes.json().catch(function() { return {}; });
+                    alert('❌ 云端同步失败 (' + putRes.status + ')！\n详细原因：' + (errData.message || '权限不足或额度受限'));
                 }
 
                 e.target.value = '';
