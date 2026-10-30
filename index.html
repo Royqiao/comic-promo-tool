@@ -76,7 +76,7 @@
         <div v-if="isAdmin" class="flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 p-1.5 rounded-xl">
           <input type="file" ref="fileInput" @change="handleImportExcel" accept=".xlsx,.xls,.csv" class="hidden" />
           <button @click="$refs.fileInput.click()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition">
-            📥 导入 Excel (新作品置顶)
+            📥 导入 Excel (自动置顶)
           </button>
           <button @click="downloadTemplate" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold transition">
             📄 下载模板
@@ -85,7 +85,7 @@
             清空云端数据
           </button>
           <button @click="logoutAdmin" class="text-xs text-slate-500 hover:underline px-1 font-medium">
-            退出并换Key
+            退出登录
           </button>
         </div>
 
@@ -127,7 +127,7 @@
     <!-- 加载中动画 -->
     <div v-if="isLoading" class="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
       <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-rose-500 border-t-transparent mb-3"></div>
-      <p class="text-slate-500 text-sm">正在从云端加载最新的数据...</p>
+      <p class="text-slate-500 text-sm">正在从 Cloudflare D1 加载最新数据...</p>
     </div>
 
     <!-- 作品列表展示 -->
@@ -196,7 +196,7 @@
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1">计划购买话数 (可随意自由填写任意话数)</label>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">计划购买话数</label>
           <input 
             v-model.number="calculator.buyEpisodes" 
             type="number" 
@@ -213,7 +213,6 @@
             <span class="line-through">{{ calcOriginalTotal }} {{ calculator.work.currency }}</span>
           </div>
 
-          <!-- 100% 全额返还：单话半价展示 -->
           <template v-if="isPayback100">
             <div class="flex justify-between text-xs text-amber-300">
               <span>门槛先付代币：</span>
@@ -237,7 +236,6 @@
             </div>
           </template>
 
-          <!-- 常规折扣/返现/免费0元展示 -->
           <template v-else>
             <div class="flex justify-between text-sm font-semibold text-amber-400">
               <span>活动实际支付：</span>
@@ -272,22 +270,14 @@
 
   <!-- 核心逻辑脚本 -->
   <script>
-    var CLOUD_BIN_ID = '6ae0470cac6210605a554c98'; 
-    var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4'; // 默认密码：admin2026
-
-    async function calcSHA256(message) {
-      if (window.crypto && window.crypto.subtle) {
-        var msgBuffer = new TextEncoder().encode(message);
-        var hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        var hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
-      }
-      return '';
-    }
+    // =================================================================
+    // 🚩 填入你在第一步中创建的 Cloudflare Worker 完整地址 (结尾不要带 /)
+    // =================================================================
+    var CF_WORKER_URL = 'https://comic-api.qqi826837.workers.dev'; 
 
     window.addEventListener('DOMContentLoaded', function() {
       if (typeof Vue === 'undefined') {
-        alert("网络加载 Vue 库超时，请检查网络或刷新页面重试！");
+        alert("网络加载 Vue 库超时，请刷新重试！");
         return;
       }
 
@@ -301,76 +291,51 @@
           var isAdmin = ref(false);
           var isLoading = ref(true);
 
-          var getAdminMasterKey = function() {
-            return (localStorage.getItem('secure_cloud_api_key') || '').trim();
+          var getAdminToken = function() {
+            return (localStorage.getItem('cf_admin_token') || '').trim();
           };
 
           var checkAdminStatus = function() {
-            if (localStorage.getItem('is_comic_admin') === 'true' && getAdminMasterKey()) {
+            if (localStorage.getItem('is_comic_admin') === 'true' && getAdminToken()) {
               isAdmin.value = true;
             }
           };
 
-          var testMasterKey = async function(key) {
-            try {
-              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
-                headers: { 'X-Master-Key': key }
-              });
-              return { ok: res.ok, status: res.status };
-            } catch (e) {
-              return { ok: false, status: 0, error: e.message };
-            }
-          };
-
+          // 管理员登录（密码直接由 Worker 鉴权）
           var loginAdmin = async function() {
             var pwd = prompt("请输入管理员密码：");
-            if (pwd === null) return;
+            if (!pwd) return;
             pwd = pwd.trim();
 
-            var inputHash = await calcSHA256(pwd);
-            if (inputHash !== ADMIN_PASSWORD_HASH && pwd !== 'admin2026') {
-              alert("密码错误，无权管理！");
-              return;
+            // 发送空 PUT 试探鉴权是否正确
+            try {
+              var res = await fetch(CF_WORKER_URL, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Admin-Token': pwd
+                },
+                body: JSON.stringify(works.value)
+              });
+
+              if (res.ok) {
+                localStorage.setItem('cf_admin_token', pwd);
+                localStorage.setItem('is_comic_admin', 'true');
+                isAdmin.value = true;
+                alert("✅ 认证成功！已开启数据管理权限。");
+              } else {
+                var errData = await res.json().catch(function() { return {}; });
+                alert("❌ 登录失败：" + (errData.message || "密码错误"));
+              }
+            } catch (err) {
+              alert("❌ 连接 Cloudflare Worker 失败，请检查网络或 Worker 网址！");
             }
-
-            var savedKey = getAdminMasterKey();
-            var keyInput = prompt(
-              savedKey
-                ? "检测到已保存的 Key：" + savedKey.slice(0, 14) + "...\n如需更换请粘贴新的 Master Key，留空则沿用旧 Key："
-                : "【首次登录】请输入你的 JSONBin Master Key（形如 $2b$10$...）：",
-              ""
-            );
-            if (keyInput === null) return;
-            keyInput = keyInput.trim();
-
-            var finalKey = keyInput || savedKey;
-            if (!finalKey) {
-              alert("⚠️ 未提供 Master Key，无法继续。");
-              return;
-            }
-
-            var result = await testMasterKey(finalKey);
-            if (!result.ok) {
-              var msg = "❌ 该 Master Key 无法访问 Bin\n" + CLOUD_BIN_ID + "\n\n";
-              if (result.status === 401) msg += "401：Key 无效，或该 Bin 不属于此 Key 的账户。";
-              else if (result.status === 403) msg += "403：Key 权限不足。";
-              else msg += "HTTP " + result.status;
-              alert(msg);
-              localStorage.removeItem('secure_cloud_api_key');
-              return;
-            }
-
-            localStorage.setItem('secure_cloud_api_key', finalKey);
-            isAdmin.value = true;
-            localStorage.setItem('is_comic_admin', 'true');
-            alert("✅ 认证成功！已开启数据管理权限。");
-            fetchCloudProducts();
           };
 
           var logoutAdmin = function() {
             isAdmin.value = false;
             localStorage.removeItem('is_comic_admin');
-            localStorage.removeItem('secure_cloud_api_key');
+            localStorage.removeItem('cf_admin_token');
             alert("已退出管理员模式。");
           };
 
@@ -388,10 +353,10 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          // 自动拉取云端数据
+          // 自动从 D1 拉取数据（所有人免密 GET）
           var fetchCloudProducts = async function() {
             isLoading.value = true;
-            if (!CLOUD_BIN_ID || CLOUD_BIN_ID === '填入你的BIN_ID') {
+            if (!CF_WORKER_URL || CF_WORKER_URL.indexOf('你的子域名') !== -1) {
               var local = localStorage.getItem('custom_comic_works');
               works.value = local ? JSON.parse(local) : [];
               isLoading.value = false;
@@ -399,30 +364,16 @@
             }
 
             try {
-              var headers = {};
-              var savedKey = getAdminMasterKey();
-              if (savedKey) {
-                headers['X-Master-Key'] = savedKey;
-              }
-
-              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
-                headers: headers
-              });
-
+              var res = await fetch(CF_WORKER_URL);
               if (res.ok) {
-                var json = await res.json();
-                var data = json.record;
-                if (Array.isArray(data)) {
-                  data = data.filter(function(item) { return !item.init; });
-                }
+                var data = await res.json();
                 works.value = Array.isArray(data) ? data : [];
                 localStorage.setItem('custom_comic_works', JSON.stringify(works.value));
-              } else if (res.status === 401 || res.status === 403) {
-                throw new Error("AUTH_" + res.status);
               } else {
                 throw new Error("HTTP " + res.status);
               }
             } catch(e) {
+              console.warn("拉取 D1 异常，使用本地缓存", e);
               var localBackup = localStorage.getItem('custom_comic_works');
               works.value = localBackup ? JSON.parse(localBackup) : [];
             } finally {
@@ -434,38 +385,40 @@
             fetchCloudProducts();
           });
 
+          // 清空云端数据
           var clearAllData = async function() {
-            if (!confirm("⚠️ 确定要清空云端和本地的全部作品数据吗？")) return;
+            if (!confirm("⚠️ 确定要清空 D1 云端数据库的全部作品数据吗？")) return;
 
-            var currentKey = getAdminMasterKey();
-            if (!currentKey) {
-              alert("❌ 未检测到有效 Master Key，请重新登录！");
+            var token = getAdminToken();
+            if (!token) {
+              alert("❌ 未找到登录凭证，请重新登录！");
               return;
             }
 
             try {
-              var res = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
+              var res = await fetch(CF_WORKER_URL, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
-                  'X-Master-Key': currentKey
+                  'X-Admin-Token': token
                 },
-                body: JSON.stringify([{ init: true }])
+                body: JSON.stringify([])
               });
 
               if (res.ok) {
                 works.value = [];
                 localStorage.removeItem('custom_comic_works');
-                alert("✅ 云端数据库已彻底清空！");
+                alert("✅ D1 数据库已彻底清空！");
               } else {
-                alert("❌ 清空失败 (状态码 " + res.status + ")！");
+                var err = await res.json().catch(function() { return {}; });
+                alert("❌ 清空失败：" + (err.message || res.status));
               }
             } catch(e) {
               alert("❌ 网络连接失败！");
             }
           };
 
-          // 🌟 筛选与展示：永远保证“最新更新/最新导入”的作品排在前面
+          // 筛选与排序：保证“最新更新/最新导入”排在最前
           var filteredWorks = computed(function() {
             var result = works.value.filter(function(work) {
               var q = filters.value.query.trim().toLowerCase();
@@ -481,7 +434,6 @@
               return matchQuery && matchPlatform && matchEventType;
             });
 
-            // 按 updated_at / created_at 时间戳从新到旧排序
             return result.sort(function(a, b) {
               var timeA = a.updated_at || a.created_at || 0;
               var timeB = b.updated_at || b.created_at || 0;
@@ -536,6 +488,7 @@
             return getBuyCount() * calculator.value.work.original_coin_per_ep;
           });
 
+          // 活动单价精准判定：单价为 0 时结果必为 0
           var calcDiscountedPay = computed(function() {
             if (!calculator.value.event) return 0;
             var payPerEp = calculator.value.event.pay_coin;
@@ -579,7 +532,7 @@
           });
 
           // =========================================================
-          // 🌟 Excel 导入处理（新作品自动置顶最前）
+          // 🌟 Excel 导入处理（无缝同步到 Cloudflare D1）
           // =========================================================
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
@@ -619,23 +572,19 @@
                 var workbook = XLSX.read(data, { type: 'array' });
                 var rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
-                var currentKey = getAdminMasterKey();
-                if (!currentKey) {
-                  alert("❌ 未找到有效 Master Key，无法推送到云端！请重新登录。");
+                var token = getAdminToken();
+                if (!token) {
+                  alert("❌ 未找到登录凭据，无法推送到云端！请重新登录。");
                   return;
                 }
 
                 var baseWorks = [];
                 if (isAppend) {
                   try {
-                    var latestRes = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
-                      headers: { 'X-Master-Key': currentKey }
-                    });
+                    var latestRes = await fetch(CF_WORKER_URL);
                     if (latestRes.ok) {
-                      var cloudJson = await latestRes.json();
-                      if (Array.isArray(cloudJson.record)) {
-                        baseWorks = cloudJson.record.filter(function(item) { return !item.init; });
-                      }
+                      var d1Data = await latestRes.json();
+                      if (Array.isArray(d1Data)) baseWorks = d1Data;
                     }
                   } catch(err) {
                     baseWorks = JSON.parse(JSON.stringify(works.value));
@@ -683,7 +632,6 @@
                     parsedOrig = Number(row['单话原价']);
                   }
 
-                  // 没找到则新建（赋予当前更高的时间戳，确保排在最前面）
                   if (!targetWork) {
                     var baseName = rawKo || rawZh || ('未命名_' + importTimestamp + '_' + i);
                     var newKey = platform + '___' + baseName;
@@ -703,7 +651,6 @@
                     workMap.set(newKey, targetWork);
                     newWorkCount++;
                   } else {
-                    // 老作品有改动时也更新时间戳，顶到前面
                     targetWork.updated_at = importTimestamp + i;
                   }
 
@@ -748,18 +695,18 @@
                   }
                 });
 
-                // 🌟 将所有作品按更新/创建时间倒序排好（最新导入的作品在最前）
                 var mergedWorks = Array.from(workMap.values()).sort(function(a, b) {
                   var timeA = a.updated_at || a.created_at || 0;
                   var timeB = b.updated_at || b.created_at || 0;
                   return timeB - timeA;
                 });
 
-                var putRes = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
+                // 同步推送到 Cloudflare D1
+                var putRes = await fetch(CF_WORKER_URL, {
                   method: 'PUT',
                   headers: {
                     'Content-Type': 'application/json',
-                    'X-Master-Key': currentKey
+                    'X-Admin-Token': token
                   },
                   body: JSON.stringify(mergedWorks)
                 });
@@ -768,16 +715,16 @@
                   works.value = mergedWorks;
                   localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
                   alert(
-                    '🎉 导入成功！\n' +
+                    '🎉 导入成功 (Cloudflare D1 已同步)！\n' +
                     '- 导入模式：' + (isAppend ? '追加合并 (新作品已自动置顶)' : '全新覆盖') + '\n' +
                     '- 新增作品：' + newWorkCount + ' 部\n' +
                     '- 新增活动：' + newEventCount + ' 条\n' +
                     '- 更新活动：' + updatedEventCount + ' 条\n' +
-                    '- 当前全网收录总数：' + mergedWorks.length + ' 部'
+                    '- 当前收录总数：' + mergedWorks.length + ' 部'
                   );
                 } else {
-                  var errData = await putRes.json().catch(function() { return {}; });
-                    alert('❌ 云端同步失败 (' + putRes.status + ')！\n详细原因：' + (errData.message || '权限不足或额度受限'));
+                  var errJson = await putRes.json().catch(function() { return {}; });
+                  alert('❌ D1 同步失败 (' + putRes.status + ')：\n' + (errJson.message || '权限不匹配'));
                 }
 
                 e.target.value = '';
