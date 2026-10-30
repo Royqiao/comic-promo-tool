@@ -73,10 +73,10 @@
         </div>
 
         <!-- 管理员状态工具 -->
-        <div v-if="isAdmin" class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 p-1.5 rounded-xl">
+        <div v-if="isAdmin" class="flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 p-1.5 rounded-xl">
           <input type="file" ref="fileInput" @change="handleImportExcel" accept=".xlsx,.xls,.csv" class="hidden" />
           <button @click="$refs.fileInput.click()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition">
-            📥 导入 Excel (全网同步)
+            📥 导入 Excel (新作品置顶)
           </button>
           <button @click="downloadTemplate" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold transition">
             📄 下载模板
@@ -273,7 +273,7 @@
   <!-- 核心逻辑脚本 -->
   <script>
     var CLOUD_BIN_ID = '6ae0470cac6210605a554c98'; 
-    var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4'; // 默认：admin2026
+    var ADMIN_PASSWORD_HASH = '10e8a79b5f563e44c05d3055d44446a495cec2a1d95d8cde6a01f7c984a51dd4'; // 默认密码：admin2026
 
     async function calcSHA256(message) {
       if (window.crypto && window.crypto.subtle) {
@@ -388,6 +388,7 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
+          // 自动拉取云端数据
           var fetchCloudProducts = async function() {
             isLoading.value = true;
             if (!CLOUD_BIN_ID || CLOUD_BIN_ID === '填入你的BIN_ID') {
@@ -464,8 +465,9 @@
             }
           };
 
+          // 🌟 筛选与展示：永远保证“最新更新/最新导入”的作品排在前面
           var filteredWorks = computed(function() {
-            return works.value.filter(function(work) {
+            var result = works.value.filter(function(work) {
               var q = filters.value.query.trim().toLowerCase();
               var matchQuery = !q ||
                 (work.title_ko && work.title_ko.toLowerCase().indexOf(q) !== -1) ||
@@ -477,6 +479,13 @@
                 work.history.some(function(h) { return h.event_type.indexOf(filters.value.eventType) !== -1; });
 
               return matchQuery && matchPlatform && matchEventType;
+            });
+
+            // 按 updated_at / created_at 时间戳从新到旧排序
+            return result.sort(function(a, b) {
+              var timeA = a.updated_at || a.created_at || 0;
+              var timeB = b.updated_at || b.created_at || 0;
+              return timeB - timeA;
             });
           });
 
@@ -527,11 +536,9 @@
             return getBuyCount() * calculator.value.work.original_coin_per_ep;
           });
 
-          // 🌟 修复：精准支持活动单价为 0 元（免费/任务活动）
           var calcDiscountedPay = computed(function() {
             if (!calculator.value.event) return 0;
             var payPerEp = calculator.value.event.pay_coin;
-            // 只要单价明确定义（包括 0），就按实际数值计算，绝不触发默认值 3！
             if (payPerEp !== undefined && payPerEp !== null && !isNaN(payPerEp)) {
               return Math.ceil(getBuyCount() * payPerEp);
             }
@@ -543,7 +550,6 @@
             return Math.floor(calcDiscountedPay.value * (calculator.value.event.cashback_ratio || 0));
           });
 
-          // 🌟 净消耗成本：活动单价为 0 时结果必为 0
           var calcNetCoinCost = computed(function() {
             if (!calculator.value.work || !calculator.value.event) return 0;
             if (isPayback100.value) {
@@ -573,7 +579,7 @@
           });
 
           // =========================================================
-          // 🌟 Excel 导入处理
+          // 🌟 Excel 导入处理（新作品自动置顶最前）
           // =========================================================
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
@@ -582,6 +588,12 @@
             }
             var file = e.target.files[0];
             if (!file) return;
+
+            var isAppend = confirm(
+              "📥 检测到 Excel 表格导入：\n\n" +
+              "【确定】= 追加合并模式（新作品将置顶显示在最前面，保留原有作品）\n" +
+              "【取消】= 覆盖替换模式（清空之前的所有数据，完全以当前表格为准）"
+            );
 
             var formatExcelDate = function(val) {
               if (!val) return '2026';
@@ -607,11 +619,39 @@
                 var workbook = XLSX.read(data, { type: 'array' });
                 var rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
-                var workMap = new Map();
-                
+                var currentKey = getAdminMasterKey();
+                if (!currentKey) {
+                  alert("❌ 未找到有效 Master Key，无法推送到云端！请重新登录。");
+                  return;
+                }
 
-                var newEventCount = 0;
+                var baseWorks = [];
+                if (isAppend) {
+                  try {
+                    var latestRes = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID + '/latest', {
+                      headers: { 'X-Master-Key': currentKey }
+                    });
+                    if (latestRes.ok) {
+                      var cloudJson = await latestRes.json();
+                      if (Array.isArray(cloudJson.record)) {
+                        baseWorks = cloudJson.record.filter(function(item) { return !item.init; });
+                      }
+                    }
+                  } catch(err) {
+                    baseWorks = JSON.parse(JSON.stringify(works.value));
+                  }
+                }
+
+                var workMap = new Map();
+                baseWorks.forEach(function(w) {
+                  var uniqueKey = w.platform + '___' + (w.title_ko || w.title_zh);
+                  workMap.set(uniqueKey, w);
+                });
+
+                var newWorkCount = 0;
                 var updatedEventCount = 0;
+                var newEventCount = 0;
+                var importTimestamp = Date.now();
 
                 rows.forEach(function(row, i) {
                   var platform = String(row['平台'] || 'Lezhin KR').trim();
@@ -628,7 +668,6 @@
                   else if (platform === 'Ridibooks') defOriginal = 500;
                   else if (platform === 'Mr.Blue') defOriginal = 300;
 
-                  // 1. 匹配已有作品
                   var targetWork = null;
                   for (var w of workMap.values()) {
                     if (w.platform === platform) {
@@ -639,49 +678,45 @@
                     }
                   }
 
-                  // 2. 解析单话原价（优先保留正数常态原价）
                   var parsedOrig = defOriginal;
                   if (row['单话原价'] !== undefined && String(row['单话原价']).trim() !== '') {
                     parsedOrig = Number(row['单话原价']);
                   }
 
-                  // 3. 没找到则新建作品
+                  // 没找到则新建（赋予当前更高的时间戳，确保排在最前面）
                   if (!targetWork) {
-                    var baseName = rawKo || rawZh || ('未命名_' + i);
-                    var newKey = platform + '_' + baseName; 
-                    
+                    var baseName = rawKo || rawZh || ('未命名_' + importTimestamp + '_' + i);
+                    var newKey = platform + '___' + baseName;
+
                     targetWork = {
-                      id: 'import-' + Date.now() + '-' + i,
+                      id: 'work-' + importTimestamp + '-' + Math.random().toString(36).substr(2, 5),
                       title_ko: rawKo,
                       title_zh: rawZh || rawKo || '未命名作品',
                       platform: platform,
                       currency: currency,
                       genre: row['类型'] || 'BL',
                       original_coin_per_ep: parsedOrig,
-                      history: []
+                      history: [],
+                      created_at: importTimestamp + i,
+                      updated_at: importTimestamp + i
                     };
                     workMap.set(newKey, targetWork);
+                    newWorkCount++;
+                  } else {
+                    // 老作品有改动时也更新时间戳，顶到前面
+                    targetWork.updated_at = importTimestamp + i;
                   }
 
-                  // 4. 原价保护：如果这一行填了真正常规原价（如600），而之前是0或默认值，升级为常规原价
-                  if (parsedOrig > 0) {
-                    targetWork.original_coin_per_ep = parsedOrig;
-                  }
-
-                  if (rawKo && (!targetWork.title_ko || !targetWork.title_ko.trim())) {
-                    targetWork.title_ko = rawKo;
-                  }
-
-                  // 5. 中文名汉字白名单锁定
-                 if (hasChinese(rawZh)) {
-                  targetWork.title_zh = rawZh;
-                  } else if (!hasChinese(targetWork.title_zh)) {
-                 targetWork.title_zh = rawZh || rawKo || '未命名作品';
-                  }
-
+                  if (parsedOrig > 0) targetWork.original_coin_per_ep = parsedOrig;
                   if (row['类型']) targetWork.genre = String(row['类型']);
-                  
-                  // 6. 解析活动单价（🌟 彻底解除 0 的限制：填 0 则严格存入 0）
+                  if (rawKo && !targetWork.title_ko) targetWork.title_ko = rawKo;
+
+                  if (hasChinese(rawZh)) {
+                    targetWork.title_zh = rawZh;
+                  } else if (!hasChinese(targetWork.title_zh)) {
+                    targetWork.title_zh = rawZh || rawKo || targetWork.title_zh;
+                  }
+
                   var parsedPayCoin = 1;
                   if (row['活动单价'] !== undefined && String(row['活动单价']).trim() !== '') {
                     parsedPayCoin = Number(row['活动单价']);
@@ -694,7 +729,7 @@
                     event_name: eventName,
                     event_type: String(row['优惠类型'] || '1c 特惠'),
                     date: eventDate,
-                    pay_coin: parsedPayCoin, // 保证 0 真实存入
+                    pay_coin: parsedPayCoin,
                     cashback_ratio: Number(row['返还比例']) || 0.0,
                     target_episodes: String(row['适用范围'] || '全篇'),
                     rule_desc: String(row['规则备注'] || '无')
@@ -713,30 +748,35 @@
                   }
                 });
 
-                var mergedWorks = Array.from(workMap.values());
-                var currentKey = getAdminMasterKey();
-                if (CLOUD_BIN_ID && CLOUD_BIN_ID !== '填入你的BIN_ID') {
-                  if (!currentKey) {
-                    alert("❌ 无法同步云端！请重新登录！");
-                    return;
-                  }
+                // 🌟 将所有作品按更新/创建时间倒序排好（最新导入的作品在最前）
+                var mergedWorks = Array.from(workMap.values()).sort(function(a, b) {
+                  var timeA = a.updated_at || a.created_at || 0;
+                  var timeB = b.updated_at || b.created_at || 0;
+                  return timeB - timeA;
+                });
 
-                  var putRes = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
-                    method: 'PUT',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'X-Master-Key': currentKey
-                    },
-                    body: JSON.stringify(mergedWorks)
-                  });
+                var putRes = await fetch('https://api.jsonbin.io/v3/b/' + CLOUD_BIN_ID, {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': currentKey
+                  },
+                  body: JSON.stringify(mergedWorks)
+                });
 
-                  if (putRes.ok) {
-                    works.value = mergedWorks;
-                    localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
-                    alert('🎉 导入成功！\n- 作品数：' + mergedWorks.length + ' 部');
-                  } else {
-                    alert('❌ 云端同步失败 (' + putRes.status + ')！');
-                  }
+                if (putRes.ok) {
+                  works.value = mergedWorks;
+                  localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
+                  alert(
+                    '🎉 导入成功！\n' +
+                    '- 导入模式：' + (isAppend ? '追加合并 (新作品已自动置顶)' : '全新覆盖') + '\n' +
+                    '- 新增作品：' + newWorkCount + ' 部\n' +
+                    '- 新增活动：' + newEventCount + ' 条\n' +
+                    '- 更新活动：' + updatedEventCount + ' 条\n' +
+                    '- 当前全网收录总数：' + mergedWorks.length + ' 部'
+                  );
+                } else {
+                  alert('❌ 云端同步失败 (' + putRes.status + ')！');
                 }
 
                 e.target.value = '';
@@ -761,7 +801,7 @@
                 "活动单价": 0,
                 "返还比例": 0.0,
                 "适用范围": "全篇",
-                "规则备注": "评论收藏返还100积分(白嫖不花钱)"
+                "规则备注": "评论收藏返还100积分"
               }
             ];
             var ws = XLSX.utils.json_to_sheet(template);
