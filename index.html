@@ -76,7 +76,7 @@
         <div v-if="isAdmin" class="flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 p-1.5 rounded-xl">
           <input type="file" ref="fileInput" @change="handleImportExcel" accept=".xlsx,.xls,.csv" class="hidden" />
           <button @click="$refs.fileInput.click()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition">
-            📥 导入 Excel (自动置顶)
+            📥 导入 Excel (按最新活动时间置顶)
           </button>
           <button @click="downloadTemplate" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold transition">
             📄 下载模板
@@ -104,21 +104,17 @@
           <input v-model="filters.query" type="text" placeholder="搜索作品名(中/韩/英)或活动名..." class="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-xl focus:border-rose-500 outline-none" />
           <span class="absolute left-3 top-2.5 text-slate-400">🔍</span>
         </div>
-        <div class="sm:col-span-4">
+        <div class="sm:col-span-3">
           <select v-model="filters.platform" class="w-full py-2 px-3 text-sm border border-slate-200 rounded-xl bg-white outline-none">
             <option value="">全部平台 (All Platforms)</option>
             <option v-for="p in platformList" :key="p" :value="p">{{ p }}</option>
           </select>
         </div>
-        <div class="sm:col-span-3">
-          <select v-model="filters.eventType" class="w-full py-2 px-3 text-sm border border-slate-200 rounded-xl bg-white outline-none">
+        <!-- 动态优惠类型下拉筛选 -->
+        <div class="sm:col-span-4">
+          <select v-model="filters.eventType" class="w-full py-2 px-3 text-sm border border-slate-200 rounded-xl bg-white outline-none font-medium text-slate-700">
             <option value="">全部优惠力度 (All Types)</option>
-            <option value="100% Coinback">100% 全额返币</option>
-            <option value="100% Payback">100% 积分返还</option>
-            <option value="1c 展">1 Coin (1c 特惠)</option>
-            <option value="2c 展">2 Coin (2c 特惠)</option>
-            <option value="50% 折扣">50% 半价</option>
-            <option value="积分返还">积分返还 (Pointback)</option>
+            <option v-for="t in dynamicEventTypes" :key="t" :value="t">{{ t }}</option>
           </select>
         </div>
       </div>
@@ -127,7 +123,7 @@
     <!-- 加载中动画 -->
     <div v-if="isLoading" class="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
       <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-rose-500 border-t-transparent mb-3"></div>
-      <p class="text-slate-500 text-sm">正在从 Cloudflare D1 加载最新数据...</p>
+      <p class="text-slate-500 text-sm">正在加载最新促销活动数据...</p>
     </div>
 
     <!-- 作品列表展示 -->
@@ -139,7 +135,7 @@
         </p>
       </div>
 
-      <!-- 作品卡片列表 -->
+      <!-- 作品卡片列表（最新活动作品排在最前） -->
       <div v-for="work in filteredWorks" :key="work.id" class="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div class="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -161,7 +157,7 @@
           </div>
         </div>
 
-        <!-- 历史促销记录时间线 -->
+        <!-- 历史促销记录时间线（内部活动也按日期倒序排好） -->
         <div class="border-t border-slate-100 bg-slate-50/50 p-4 sm:p-5">
           <div class="grid grid-cols-1 gap-2.5">
             <div v-for="(event, idx) in work.history" :key="idx" class="bg-white border border-slate-200/80 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
@@ -271,7 +267,7 @@
   <!-- 核心逻辑脚本 -->
   <script>
     // =================================================================
-    // 🚩 填入你在第一步中创建的 Cloudflare Worker 完整地址 (结尾不要带 /)
+    // 🚩 填入你自己的 Cloudflare Worker 网址 (结尾不要带 /)
     // =================================================================
     var CF_WORKER_URL = 'https://comic-api.qqi826837.workers.dev'; 
 
@@ -301,13 +297,11 @@
             }
           };
 
-          // 管理员登录（密码直接由 Worker 鉴权）
           var loginAdmin = async function() {
             var pwd = prompt("请输入管理员密码：");
             if (!pwd) return;
             pwd = pwd.trim();
 
-            // 发送空 PUT 试探鉴权是否正确
             try {
               var res = await fetch(CF_WORKER_URL, {
                 method: 'PUT',
@@ -328,7 +322,7 @@
                 alert("❌ 登录失败：" + (errData.message || "密码错误"));
               }
             } catch (err) {
-              alert("❌ 连接 Cloudflare Worker 失败，请检查网络或 Worker 网址！");
+              alert("❌ 连接 Cloudflare 失败，请检查网络！");
             }
           };
 
@@ -353,7 +347,32 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          // 自动从 D1 拉取数据（所有人免密 GET）
+          // 动态识别全部优惠类型供下拉筛选
+          var dynamicEventTypes = computed(function() {
+            var set = new Set();
+            works.value.forEach(function(w) {
+              if (Array.isArray(w.history)) {
+                w.history.forEach(function(h) {
+                  if (h.event_type && h.event_type.trim()) {
+                    set.add(h.event_type.trim());
+                  }
+                });
+              }
+            });
+            return Array.from(set);
+          });
+
+          // 辅助函数：提取某部作品下“最新的活动日期”（字符串对比，支持 yyyy-mm-dd）
+          var getWorkLatestEventDate = function(w) {
+            if (!w.history || !w.history.length) return '';
+            var maxDate = '';
+            w.history.forEach(function(h) {
+              var d = String(h.date || '').trim();
+              if (d > maxDate) maxDate = d;
+            });
+            return maxDate;
+          };
+
           var fetchCloudProducts = async function() {
             isLoading.value = true;
             if (!CF_WORKER_URL || CF_WORKER_URL.indexOf('你的子域名') !== -1) {
@@ -364,7 +383,7 @@
             }
 
             try {
-              var res = await fetch(CF_WORKER_URL);
+              var res = await fetch(CF_WORKER_URL + '?t=' + Date.now());
               if (res.ok) {
                 var data = await res.json();
                 works.value = Array.isArray(data) ? data : [];
@@ -385,7 +404,6 @@
             fetchCloudProducts();
           });
 
-          // 清空云端数据
           var clearAllData = async function() {
             if (!confirm("⚠️ 确定要清空 D1 云端数据库的全部作品数据吗？")) return;
 
@@ -418,8 +436,12 @@
             }
           };
 
-          // 筛选与排序：保证“最新更新/最新导入”排在最前
+          // =========================================================
+          // 🌟 核心：作品列表按【最新活动时间】永远置顶在最前面
+          // =========================================================
           var filteredWorks = computed(function() {
+            var selectedType = filters.value.eventType.trim().replace(/\s+/g, '').toLowerCase();
+
             var result = works.value.filter(function(work) {
               var q = filters.value.query.trim().toLowerCase();
               var matchQuery = !q ||
@@ -428,16 +450,34 @@
                 work.history.some(function(h) { return h.event_name.toLowerCase().indexOf(q) !== -1; });
 
               var matchPlatform = !filters.value.platform || work.platform === filters.value.platform;
-              var matchEventType = !filters.value.eventType ||
-                work.history.some(function(h) { return h.event_type.indexOf(filters.value.eventType) !== -1; });
+
+              var matchEventType = !selectedType || work.history.some(function(h) {
+                var currentType = (h.event_type || '').replace(/\s+/g, '').toLowerCase();
+                return currentType.indexOf(selectedType) !== -1 || selectedType.indexOf(currentType) !== -1;
+              });
 
               return matchQuery && matchPlatform && matchEventType;
             });
 
+            // 🌟 保证同一作品卡片内部的活动，也是最新日期排在第一行
+            result.forEach(function(w) {
+              if (w.history && w.history.length > 1) {
+                w.history.sort(function(h1, h2) {
+                  return String(h2.date || '').localeCompare(String(h1.date || ''));
+                });
+              }
+            });
+
+            // 🌟 核心排序规则：按最新活动日期降序排列（最新优惠日期的作品排在最前面）
             return result.sort(function(a, b) {
-              var timeA = a.updated_at || a.created_at || 0;
-              var timeB = b.updated_at || b.created_at || 0;
-              return timeB - timeA;
+              var dateA = getWorkLatestEventDate(a);
+              var dateB = getWorkLatestEventDate(b);
+
+              if (dateA !== dateB) {
+                return dateB.localeCompare(dateA); // 日期最新的排在前面
+              }
+              // 如果日期完全一样，按更新时间戳排序兜底
+              return (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0);
             });
           });
 
@@ -453,10 +493,11 @@
           };
 
           var getEventTypeBadge = function(t) {
-            if (t.indexOf('100%') !== -1) return 'bg-emerald-100 text-emerald-800';
-            if (t.indexOf('1c') !== -1) return 'bg-amber-100 text-amber-800';
-            if (t.indexOf('2c') !== -1) return 'bg-orange-100 text-orange-800';
-            if (t.indexOf('50%') !== -1) return 'bg-indigo-100 text-indigo-800';
+            var s = (t || '').toLowerCase();
+            if (s.indexOf('100%') !== -1) return 'bg-emerald-100 text-emerald-800';
+            if (s.indexOf('1c') !== -1 || s.indexOf('1coin') !== -1) return 'bg-amber-100 text-amber-800';
+            if (s.indexOf('2c') !== -1 || s.indexOf('2coin') !== -1) return 'bg-orange-100 text-orange-800';
+            if (s.indexOf('50%') !== -1 || s.indexOf('半价') !== -1) return 'bg-indigo-100 text-indigo-800';
             return 'bg-slate-100 text-slate-700';
           };
 
@@ -488,7 +529,6 @@
             return getBuyCount() * calculator.value.work.original_coin_per_ep;
           });
 
-          // 活动单价精准判定：单价为 0 时结果必为 0
           var calcDiscountedPay = computed(function() {
             if (!calculator.value.event) return 0;
             var payPerEp = calculator.value.event.pay_coin;
@@ -532,7 +572,7 @@
           });
 
           // =========================================================
-          // 🌟 Excel 导入处理（无缝同步到 Cloudflare D1）
+          // 🌟 Excel 导入处理
           // =========================================================
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
@@ -544,13 +584,13 @@
 
             var isAppend = confirm(
               "📥 检测到 Excel 表格导入：\n\n" +
-              "【确定】= 追加合并模式（新作品将置顶显示在最前面，保留原有作品）\n" +
+              "【确定】= 追加合并模式（新老作品自动按最新活动时间倒序排好）\n" +
               "【取消】= 覆盖替换模式（清空之前的所有数据，完全以当前表格为准）"
             );
 
             var formatExcelDate = function(val) {
-              if (!val) return '2026';
-              if (typeof val === 'string' && val.indexOf('-') !== -1) return val;
+              if (!val) return '2026-01-01';
+              if (typeof val === 'string' && val.indexOf('-') !== -1) return val.trim();
               if (typeof val === 'number') {
                 var jsDate = new Date(Math.round((val - 25569) * 86400 * 1000));
                 var y = jsDate.getUTCFullYear();
@@ -558,7 +598,7 @@
                 var d = ('0' + jsDate.getUTCDate()).slice(-2);
                 return y + '-' + m + '-' + d;
               }
-              return String(val);
+              return String(val).trim();
             };
 
             var hasChinese = function(str) {
@@ -581,7 +621,7 @@
                 var baseWorks = [];
                 if (isAppend) {
                   try {
-                    var latestRes = await fetch(CF_WORKER_URL);
+                    var latestRes = await fetch(CF_WORKER_URL + '?t=' + Date.now());
                     if (latestRes.ok) {
                       var d1Data = await latestRes.json();
                       if (Array.isArray(d1Data)) baseWorks = d1Data;
@@ -674,7 +714,7 @@
 
                   var newEventObj = {
                     event_name: eventName,
-                    event_type: String(row['优惠类型'] || '1c 特惠'),
+                    event_type: String(row['优惠类型'] || '1c 特惠').trim(),
                     date: eventDate,
                     pay_coin: parsedPayCoin,
                     cashback_ratio: Number(row['返还比例']) || 0.0,
@@ -695,13 +735,23 @@
                   }
                 });
 
-                var mergedWorks = Array.from(workMap.values()).sort(function(a, b) {
-                  var timeA = a.updated_at || a.created_at || 0;
-                  var timeB = b.updated_at || b.created_at || 0;
-                  return timeB - timeA;
+                // 排序所有作品名下的活动，并根据最新活动时间从新到旧排好作品
+                var mergedWorks = Array.from(workMap.values());
+                mergedWorks.forEach(function(w) {
+                  if (w.history && w.history.length > 1) {
+                    w.history.sort(function(h1, h2) {
+                      return String(h2.date || '').localeCompare(String(h1.date || ''));
+                    });
+                  }
                 });
 
-                // 同步推送到 Cloudflare D1
+                mergedWorks.sort(function(a, b) {
+                  var dateA = getWorkLatestEventDate(a);
+                  var dateB = getWorkLatestEventDate(b);
+                  if (dateA !== dateB) return dateB.localeCompare(dateA);
+                  return (b.updated_at || 0) - (a.updated_at || 0);
+                });
+
                 var putRes = await fetch(CF_WORKER_URL, {
                   method: 'PUT',
                   headers: {
@@ -715,8 +765,8 @@
                   works.value = mergedWorks;
                   localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
                   alert(
-                    '🎉 导入成功 (Cloudflare D1 已同步)！\n' +
-                    '- 导入模式：' + (isAppend ? '追加合并 (新作品已自动置顶)' : '全新覆盖') + '\n' +
+                    '🎉 导入成功 (已按最新优惠时间自动置顶)！\n' +
+                    '- 导入模式：' + (isAppend ? '追加合并' : '全新覆盖') + '\n' +
                     '- 新增作品：' + newWorkCount + ' 部\n' +
                     '- 新增活动：' + newEventCount + ' 条\n' +
                     '- 更新活动：' + updatedEventCount + ' 条\n' +
@@ -768,6 +818,7 @@
             rates: rates,
             filters: filters,
             platformList: platformList,
+            dynamicEventTypes: dynamicEventTypes,
             filteredWorks: filteredWorks,
             getPlatformBadge: getPlatformBadge,
             getEventTypeBadge: getEventTypeBadge,
