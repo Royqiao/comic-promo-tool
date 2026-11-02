@@ -24,7 +24,7 @@
     <header class="mb-8 text-center sm:text-left sm:flex sm:justify-between sm:items-end border-b border-slate-200 pb-6">
       <div>
         <div class="inline-flex items-center gap-2 px-3 py-1 bg-rose-50 text-rose-600 rounded-full text-xs font-semibold mb-2">
-          <span>✨ 韩漫作品近来促销活动 (在线测算)</span>
+          <span>韩漫作品近来促销活动 (在线测算)</span>
         </div>
         <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">韩漫作品近来促销活动 & 抄底测算器</h1>
         <p class="text-slate-500 text-sm mt-1">已涵盖 Lezhin KR、Bomtoon、Ridi、Mr.Blue 与 Lezhin US </p>
@@ -76,10 +76,10 @@
         <div v-if="isAdmin" class="flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 p-1.5 rounded-xl">
           <input type="file" ref="fileInput" @change="handleImportExcel" accept=".xlsx,.xls,.csv" class="hidden" />
           <button @click="$refs.fileInput.click()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition">
-            📥 导入 Excel (按最新活动时间置顶)
+            导入 Excel (按最新时间置顶)
           </button>
           <button @click="downloadTemplate" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold transition">
-            📄 下载模板
+            下载模板
           </button>
           <button @click="clearAllData" class="px-2 py-1 text-rose-500 hover:text-rose-700 text-xs">
             清空云端数据
@@ -91,7 +91,7 @@
 
         <div v-else class="flex justify-end">
           <button @click="loginAdmin" title="管理员管理入口" class="text-xs text-slate-400 hover:text-slate-700 transition flex items-center gap-1">
-            <span>🔒 管理员入口</span>
+            <span>管理员入口</span>
           </button>
         </div>
       </div>
@@ -110,11 +110,13 @@
             <option v-for="p in platformList" :key="p" :value="p">{{ p }}</option>
           </select>
         </div>
-        <!-- 动态优惠类型下拉筛选 -->
+        <!-- 🌟 无Emoji、美化排序后的优惠力度筛选下拉菜单 -->
         <div class="sm:col-span-4">
           <select v-model="filters.eventType" class="w-full py-2 px-3 text-sm border border-slate-200 rounded-xl bg-white outline-none font-medium text-slate-700">
             <option value="">全部优惠力度 (All Types)</option>
-            <option v-for="t in dynamicEventTypes" :key="t" :value="t">{{ t }}</option>
+            <option v-for="item in dynamicEventTypes" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
           </select>
         </div>
       </div>
@@ -135,7 +137,7 @@
         </p>
       </div>
 
-      <!-- 作品卡片列表（最新活动作品排在最前） -->
+      <!-- 作品卡片列表（按最新优惠时间倒序排好） -->
       <div v-for="work in filteredWorks" :key="work.id" class="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div class="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -167,10 +169,10 @@
                   <span class="font-semibold text-slate-900 text-sm">{{ event.event_name }}</span>
                   <span class="px-2 py-0.5 rounded text-[11px] font-bold" :class="getEventTypeBadge(event.event_type)">{{ event.event_type }}</span>
                 </div>
-                <div class="text-slate-500">🎯 适用范围：{{ event.target_episodes }} · 规则：{{ event.rule_desc }}</div>
+                <div class="text-slate-500">适用范围：{{ event.target_episodes }} · 规则：{{ event.rule_desc }}</div>
               </div>
               <button @click="openCalculator(work, event)" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-lg font-semibold transition">
-                🧮 测算成本
+                测算成本
               </button>
             </div>
           </div>
@@ -316,13 +318,13 @@
                 localStorage.setItem('cf_admin_token', pwd);
                 localStorage.setItem('is_comic_admin', 'true');
                 isAdmin.value = true;
-                alert("✅ 认证成功！已开启数据管理权限。");
+                alert("认证成功！已开启数据管理权限。");
               } else {
                 var errData = await res.json().catch(function() { return {}; });
-                alert("❌ 登录失败：" + (errData.message || "密码错误"));
+                alert("登录失败：" + (errData.message || "密码错误"));
               }
             } catch (err) {
-              alert("❌ 连接 Cloudflare 失败，请检查网络！");
+              alert("连接 Cloudflare 失败，请检查网络！");
             }
           };
 
@@ -347,22 +349,47 @@
           var filters = ref({ query: '', platform: '', eventType: '' });
           var platformList = ['Lezhin KR', 'Bomtoon', 'Ridibooks', 'Mr.Blue', 'Lezhin US'];
 
-          // 动态识别全部优惠类型供下拉筛选
+          // 🌟 动态自动提取、去Emoji美化排序下拉菜单选项
           var dynamicEventTypes = computed(function() {
-            var set = new Set();
+            var rawSet = new Set();
             works.value.forEach(function(w) {
               if (Array.isArray(w.history)) {
                 w.history.forEach(function(h) {
                   if (h.event_type && h.event_type.trim()) {
-                    set.add(h.event_type.trim());
+                    rawSet.add(h.event_type.trim());
                   }
                 });
               }
             });
-            return Array.from(set);
+
+            // 权重判定函数（越靠前的优先级越大）
+            var getWeight = function(typeStr) {
+              var s = typeStr.replace(/\s+/g, '').toLowerCase();
+              if (s.indexOf('100%') !== -1 || s.indexOf('全额') !== -1) return 100;
+              if (s.indexOf('1c') !== -1 || s.indexOf('1coin') !== -1) return 90;
+              if (s.indexOf('2c') !== -1 || s.indexOf('2coin') !== -1) return 80;
+              if (s.indexOf('50%') !== -1 || s.indexOf('半价') !== -1) return 70;
+              if (s.indexOf('积分') !== -1 || s.indexOf('point') !== -1) return 60;
+              return 10;
+            };
+
+            var list = Array.from(rawSet).map(function(t) {
+              return {
+                value: t,
+                label: t,
+                weight: getWeight(t)
+              };
+            });
+
+            // 按优惠力度权重从大到小排序，权重相同时按拼音/字符升序
+            return list.sort(function(a, b) {
+              if (b.weight !== a.weight) {
+                return b.weight - a.weight;
+              }
+              return a.label.localeCompare(b.label);
+            });
           });
 
-          // 辅助函数：提取某部作品下“最新的活动日期”（字符串对比，支持 yyyy-mm-dd）
           var getWorkLatestEventDate = function(w) {
             if (!w.history || !w.history.length) return '';
             var maxDate = '';
@@ -405,11 +432,11 @@
           });
 
           var clearAllData = async function() {
-            if (!confirm("⚠️ 确定要清空 D1 云端数据库的全部作品数据吗？")) return;
+            if (!confirm("确定要清空 D1 云端数据库的全部作品数据吗？")) return;
 
             var token = getAdminToken();
             if (!token) {
-              alert("❌ 未找到登录凭证，请重新登录！");
+              alert("未找到登录凭证，请重新登录！");
               return;
             }
 
@@ -426,18 +453,18 @@
               if (res.ok) {
                 works.value = [];
                 localStorage.removeItem('custom_comic_works');
-                alert("✅ D1 数据库已彻底清空！");
+                alert("D1 数据库已彻底清空！");
               } else {
                 var err = await res.json().catch(function() { return {}; });
-                alert("❌ 清空失败：" + (err.message || res.status));
+                alert("清空失败：" + (err.message || res.status));
               }
             } catch(e) {
-              alert("❌ 网络连接失败！");
+              alert("网络连接失败！");
             }
           };
 
           // =========================================================
-          // 🌟 核心：作品列表按【最新活动时间】永远置顶在最前面
+          // 🌟 核心：最新活动作品排在最前 + 纯类型精准容错匹配
           // =========================================================
           var filteredWorks = computed(function() {
             var selectedType = filters.value.eventType.trim().replace(/\s+/g, '').toLowerCase();
@@ -451,6 +478,7 @@
 
               var matchPlatform = !filters.value.platform || work.platform === filters.value.platform;
 
+              // 忽略空格和大小写匹配优惠类型
               var matchEventType = !selectedType || work.history.some(function(h) {
                 var currentType = (h.event_type || '').replace(/\s+/g, '').toLowerCase();
                 return currentType.indexOf(selectedType) !== -1 || selectedType.indexOf(currentType) !== -1;
@@ -459,7 +487,7 @@
               return matchQuery && matchPlatform && matchEventType;
             });
 
-            // 🌟 保证同一作品卡片内部的活动，也是最新日期排在第一行
+            // 内部活动倒序排好（最新在第一行）
             result.forEach(function(w) {
               if (w.history && w.history.length > 1) {
                 w.history.sort(function(h1, h2) {
@@ -468,15 +496,14 @@
               }
             });
 
-            // 🌟 核心排序规则：按最新活动日期降序排列（最新优惠日期的作品排在最前面）
+            // 外部卡片排好：最新优惠日期的作品排在最顶端
             return result.sort(function(a, b) {
               var dateA = getWorkLatestEventDate(a);
               var dateB = getWorkLatestEventDate(b);
 
               if (dateA !== dateB) {
-                return dateB.localeCompare(dateA); // 日期最新的排在前面
+                return dateB.localeCompare(dateA);
               }
-              // 如果日期完全一样，按更新时间戳排序兜底
               return (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0);
             });
           });
@@ -571,9 +598,6 @@
             return ((coin / 100.0) * rates.value.korean_won_100w).toFixed(2);
           });
 
-          // =========================================================
-          // 🌟 Excel 导入处理
-          // =========================================================
           var handleImportExcel = function(e) {
             if (!isAdmin.value) {
               alert("无权操作！请先登录管理员。");
@@ -583,7 +607,7 @@
             if (!file) return;
 
             var isAppend = confirm(
-              "📥 检测到 Excel 表格导入：\n\n" +
+              "检测到 Excel 表格导入：\n\n" +
               "【确定】= 追加合并模式（新老作品自动按最新活动时间倒序排好）\n" +
               "【取消】= 覆盖替换模式（清空之前的所有数据，完全以当前表格为准）"
             );
@@ -614,7 +638,7 @@
 
                 var token = getAdminToken();
                 if (!token) {
-                  alert("❌ 未找到登录凭据，无法推送到云端！请重新登录。");
+                  alert("未找到登录凭据，无法推送到云端！请重新登录。");
                   return;
                 }
 
@@ -735,7 +759,6 @@
                   }
                 });
 
-                // 排序所有作品名下的活动，并根据最新活动时间从新到旧排好作品
                 var mergedWorks = Array.from(workMap.values());
                 mergedWorks.forEach(function(w) {
                   if (w.history && w.history.length > 1) {
@@ -765,7 +788,7 @@
                   works.value = mergedWorks;
                   localStorage.setItem('custom_comic_works', JSON.stringify(mergedWorks));
                   alert(
-                    '🎉 导入成功 (已按最新优惠时间自动置顶)！\n' +
+                    '导入成功 (已按最新优惠时间自动置顶)！\n' +
                     '- 导入模式：' + (isAppend ? '追加合并' : '全新覆盖') + '\n' +
                     '- 新增作品：' + newWorkCount + ' 部\n' +
                     '- 新增活动：' + newEventCount + ' 条\n' +
@@ -774,7 +797,7 @@
                   );
                 } else {
                   var errJson = await putRes.json().catch(function() { return {}; });
-                  alert('❌ D1 同步失败 (' + putRes.status + ')：\n' + (errJson.message || '权限不匹配'));
+                  alert('D1 同步失败 (' + putRes.status + ')：\n' + (errJson.message || '权限不匹配'));
                 }
 
                 e.target.value = '';
